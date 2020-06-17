@@ -105,7 +105,7 @@ class ROINormalizer(Normalizer):
             # Assume list of responsibilities
             if self.labels is not None:
                 labs = [labs[i] for i in self.labels]
-            lab, _ =  self.load(labs[0])
+            lab, _ = self.load(labs[0])
             for l in labs[1:]:
                 lab += self.load(l)[0]
         else:
@@ -113,12 +113,12 @@ class ROINormalizer(Normalizer):
             if len(lab.shape) > 3:
                 # Assume 4D volume of responsibilities
                 if self.labels is not None:
-                    lab = lab[:,:,:,self.labels]
+                    lab = lab[:, :, :, self.labels]
                 lab = lab.sum(axis=3)
             else:
                 if self.labels is not None:
                     # Assume hard labels
-                    lab = np.isin(lab, self.labels)
+                    lab = np.isin(lab.astype(np.int), self.labels)
         return lab
 
 # ----------------------------------------------------------------------
