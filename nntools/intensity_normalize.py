@@ -174,6 +174,8 @@ if __name__ == '__main__':
         'output_prefix': args.output_prefix,
         'output_ext': args.output_ext,
     }
+    if output_args['output_dtype'] is not None:
+        output_args['output_dtype'] = np.dtype(output_args['output_dtype'])
 
     if method == 'roi':
         obj = ROINormalizer(args.label_list, args.metric, args.target,
