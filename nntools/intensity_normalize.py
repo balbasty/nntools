@@ -153,7 +153,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
 
     # Positional arguments
-    parser.add_argument('images', '--images', '-i', nargs='+', required=True)
+    parser.add_argument('--images', '-i', nargs='+', required=True)
     parser.add_argument('--method', '-m', choices=['roi'], default='roi')
     parser.add_argument('--labels', '-l', nargs='*')
     parser.add_argument('--label-list', nargs='+', dest='label_list')
