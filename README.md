@@ -1,2 +1,2 @@
 # nntools
-Tools (0reprocessing etc.) for neural networks
+Tools (preprocessing etc.) for neural networks
