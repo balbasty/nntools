@@ -53,12 +53,12 @@ class Normalizer:
                        else x.dtype
         output_fname = (self.output_prefix if self.output_prefix is not None
                         else '') + (info['fname'] if info['fname'] else '')
-        affine = info['class'].affine() if info['class'] is not None else None
-        header = info['class'].header() if info['class'] is not None else None
-        extra  = info['class'].extra() if info['extra'] is not None else None
+        affine = info['class'].affine if info['class'] is not None else None
+        header = info['class'].header if info['class'] is not None else None
+        extra  = info['class'].extra if info['class'] is not None else None
 
         nbobj = nb.spatialimages.SpatialImage(x, affine, header, extra)
-        nbobj.header().set_data_dtype(output_dtype)
+        nbobj.header.set_data_dtype(output_dtype)
 
         output_path = os.path.join(output_dir, output_fname + output_ext)
         nb.save(nbobj, output_path)
@@ -87,6 +87,8 @@ class ROINormalizer(Normalizer):
 
     def _normalize(self, x, labs):
         lab = self.load_label(labs)
+        print(x.shape)
+        print(lab.shape)
         if self.metric == 'mean':
             reference = np.average(x, weights=lab, dtype=np.float64)
         elif self.metric == 'median':
@@ -95,6 +97,7 @@ class ROINormalizer(Normalizer):
             raise TypeError("Metric must be 'mean' or 'median'. Got {}."
                             .format(self.metric))
         x *= (self.target/reference)
+        return x
 
     def load_label(self, labs):
         if isinstance(labs, tuple):
@@ -103,6 +106,7 @@ class ROINormalizer(Normalizer):
             labs = [labs]
         if len(labs) > 1:
             # Assume list of responsibilities
+            print('Responsibilities: multiple 3D') 
             if self.labels is not None:
                 labs = [labs[i] for i in self.labels]
             lab, _ = self.load(labs[0])
@@ -110,15 +114,19 @@ class ROINormalizer(Normalizer):
                 lab += self.load(l)[0]
         else:
             lab, _ = self.load(labs[0])
-            if len(lab.shape) > 3:
+            if len(lab.shape) > 3 and lab.shape[3] > 1:
                 # Assume 4D volume of responsibilities
+                print('Responsibilities: 4D')
                 if self.labels is not None:
                     lab = lab[:, :, :, self.labels]
                 lab = lab.sum(axis=3)
             else:
                 if self.labels is not None:
                     # Assume hard labels
-                    lab = np.isin(lab.astype(np.int), self.labels)
+                    lab = lab.astype(np.int)
+                    print(self.labels)
+                    print(np.unique(lab))
+                    lab = np.isin(lab, self.labels)
         return lab
 
 # ----------------------------------------------------------------------
@@ -156,7 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--images', '-i', nargs='+', required=True)
     parser.add_argument('--method', '-m', choices=['roi'], default='roi')
     parser.add_argument('--labels', '-l', nargs='*')
-    parser.add_argument('--label-list', nargs='+', dest='label_list')
+    parser.add_argument('--label-list', type=int, nargs='+', dest='label_list')
     parser.add_argument('--metric', choices=['mean', 'median'], default='median')
     parser.add_argument('--target', type=float, default=1.0)
     parser.add_argument('--output-dtype', '-dt', default=None, dest='output_dtype')
