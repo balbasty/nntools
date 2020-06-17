@@ -140,7 +140,7 @@ if __name__ == '__main__':
         oimages = []
         for entry in images:
             # entry is: image or dir or token-images or token-dirs
-            entry = glob(entry).sort()
+            entry = sorted(glob(os.path.expanduser(entry)))
             for subentry in entry:
                 if os.path.isdir(subentry):
                     # expand + sort
