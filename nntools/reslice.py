@@ -257,9 +257,9 @@ class Resizer(Reslicer):
         ifactor = [1/f for f in factor]
         scale = np.diag(ifactor + [1])
         shift = np.eye(4)
-        shift[:3, 3] = -0.5
-        scale = np.dot(scale, shift)
         shift[:3, 3] = 0.5
+        scale = np.dot(scale, shift)
+        shift[:3, 3] = -0.5
         scale = np.dot(shift, scale)
         output_affine = np.dot(input_affine, scale)
 

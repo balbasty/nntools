@@ -1,19 +1,53 @@
 import os.path
 import nibabel as nb
 import numpy as np
+from nibabel.spatialimages import SpatialImage
+from .utils import argpad, argdef
 
 # TODO:
-# - handle npy files (pickled numpy arrays)
 # - Reader / Writer base classes for <Specific>Reader / <Specific>Writer
 # - SurfaceReader / SurfaceWriter
 # - Read to GPU (can be done with torch I think, possible with TF?)
+# - Split base readers (numpy/nibabel/...) into subfunctions or subclasses
+#   and add function to try different r/w based on the file extension.
+# - use mmap_mode rather than allow_memmmap
+
+
+def _default_affine(shape):
+    """Create default orientation matrix.
+
+    We follow the same convention as nibabel/SPM: (0,0,0) is in the
+    center of the field-of-view.
+
+    """
+    dim = len(shape)
+    shape = np.asarray(shape)
+    shift = -shape.astype(np.float64)/2 + 0.5
+    mat = np.eye(dim+1, dtype=np.float64)
+    mat[:dim, dim] = shift
+    return mat
+
+
+def _fileparts(fname):
+    """Split a filename into directory / basename / extension.
+
+    If the last extension is ``.gz``, this function checks if another
+    extension is present, in which case it returns ``.<ext>.gz``
+    """
+    dir = os.path.dirname(fname)
+    basename = os.path.basename(fname)
+    basename, ext = os.path.splitext(basename)
+    if ext == '.gz':
+        basename, ext0 = os.path.splitext(basename)
+        ext = ext0 + ext
+    return dir, basename, ext
 
 
 class VolumeReader:
-    """Versatile reader for volume files or objects.
-    """
+    """Versatile reader for volume files or objects."""
 
-    def __init__(self, dtype=None, allow_memmap=True, copy=True, order=None):
+    def __init__(self, dtype=None, allow_memmap=True, copy=True,
+                 order=None, allow_pickle=False):
         """
 
         Parameters
@@ -31,11 +65,18 @@ class VolumeReader:
 
         order : {'K', 'A', 'C', 'F'}, default=None
             Specify a specific memory layout.
+
+        allow_pickle : bool, default=False
+            Allow loading pickled object arrays stored in npy files.
+            Reasons for disallowing pickles include security, as
+            loading pickled data can execute arbitrary code. If pickles
+            are disallowed, loading object arrays will fail.
         """
         self.dtype = dtype
         self.allow_memmap = allow_memmap
         self.copy = copy
         self.order = order
+        self.allow_pickle = allow_pickle
 
     def __call__(self, *args, **kwargs):
         return self.read(*args, **kwargs)
@@ -53,26 +94,35 @@ class VolumeReader:
         }
         # If str -> split path into directory / basename / extension
         if isinstance(x, str):
-            fname = x
-            info['dir'] = os.path.dirname(fname)
-            fname = os.path.basename(fname)
-            fname, ext = os.path.splitext(fname)
-            if ext == '.gz':
-                fname, ext0 = os.path.splitext(fname)
-                ext = ext0 + ext
-            info['basename'] = fname
+            path, basename, ext = _fileparts(x)
+            info['dir'] = path
+            info['basename'] = basename
             info['ext'] = ext
-            x = nb.load(x)
+
+            # Memory map data
+            if ext in ('.npy', '.npz'):
+                # numpy
+                x = np.load(x, allow_pickle=self.allow_pickle,
+                            mmap_mode='r')
+            else:
+                # nibabel
+                x = nb.load(x)
+
         # Then, if nibabel object -> extract affine / header / extra
-        if isinstance(x, nb.spatialimages.SpatialImage):
+        if isinstance(x, SpatialImage):
             info['dtype'] = x.get_data_dtype()
             info['affine'] = x.affine
             info['header'] = x.header
             info['extra'] = x.extra
             info['shape'] = x.header.get_data_shape()
+        elif isinstance(x, np.ndarray):
+            info['dtype'] = x.dtype
+            info['shape'] = argpad(x.shape, 3, 1)
+            info['affine'] = _default_affine(info['shape'])
         return info
 
-    def read(self, x, dtype=None, allow_memmap=None, copy=None, order=None):
+    def read(self, x, dtype=None, allow_memmap=None, copy=None, order=None,
+             read_info=True):
         """Load (and convert) data stored in a file or array.
 
         Parameters
@@ -100,51 +150,54 @@ class VolumeReader:
             A numpy array with the specified dtype and memory layout.
 
         """
-        if dtype is None:
-            dtype = self.dtype
-        dtype = np.dtype(dtype)
-        if allow_memmap is None:
-            allow_memmap = self.allow_memmap
-        if copy is None:
-            copy = self.copy
-        if order is None:
-            order = self.order
-        info = {
-            'basename': None,
-            'dir': None,
-            'ext': None,
-            'dtype': None,
-            'affine': None,
-            'header': None,
-            'extra': None,
-        }
+        dtype = np.dtype(argdef(dtype, self.dtype))
+        allow_memmap = argdef(allow_memmap, self.allow_memmap)
+        copy = argdef(copy, self.copy)
+        order = argdef(order, self.order)
+
+        if read_info:
+            info = dict()
+
         # If str -> split path into directory / basename / extension
         if isinstance(x, str):
-            fname = x
-            info['dir'] = os.path.dirname(fname)
-            fname = os.path.basename(fname)
-            fname, ext = os.path.splitext(fname)
-            if ext == '.gz':
-                fname, ext0 = os.path.splitext(fname)
-                ext = ext0 + ext
-            info['basename'] = fname
-            info['ext'] = ext
-            x = nb.load(x)
+            path, basename, ext = _fileparts(x)
+            if read_info:
+                info['dir'] = path
+                info['basename'] = basename
+                info['ext'] = ext
+
+            if ext in ('.npy', '.npz'):
+                x = np.load(x, allow_pickle=self.allow_pickle,
+                            mmap_mode='r' if self.allow_memmap else None)
+            else:
+                x = nb.load(x)
+
         # Then, if nibabel object -> extract affine / header / extra
-        if isinstance(x, nb.spatialimages.SpatialImage):
-            info['dtype'] = x.get_data_dtype()
-            info['affine'] = x.affine
-            info['header'] = x.header
-            info['extra'] = x.extra
+        if isinstance(x, SpatialImage):
+            if read_info:
+                info['dtype'] = x.get_data_dtype()
+                info['affine'] = x.affine
+                info['header'] = x.header
+                info['extra'] = x.extra
             x = x.get_fdata(dtype=dtype)
+        elif isinstance(x, np.ndarray):
+            if read_info:
+                info['dtype'] = x.dtype
+                info['shape'] = argpad(x.shape, 3, 1)
+                info['affine'] = _default_affine(info['shape'])
+
         # Then, if not numpy array -> convert to numpy array
-        x = np.array(x, copy=copy, order=order)
+        x = np.array(x, copy=copy, order=order, dtype=dtype)
         if not isinstance(x, np.ndarray):
             raise TypeError("Input type '{}' not handled".format(type(x)))
         # Then, if memory-mapped and not allow_memmap -> load
         if isinstance(x, np.memmap) and not allow_memmap:
             x = x[...]
-        return x, info
+
+        if read_info:
+            return x, info
+        else:
+            return x
 
 
 class VolumeWriter:
@@ -153,6 +206,42 @@ class VolumeWriter:
     def __init__(self, affine=None, header=None, extra=None,
                   dtype=None, dir=None, ext=None, prefix=None,
                   basename=None, fname=None, dummy=False):
+        """
+
+        Parameters
+        ----------
+        affine : matrix_like, optional
+            Orientation matrix
+
+        header :
+            Nibabel header
+
+        extra
+            Nibabel extra metadata
+
+        dtype : str or type, optional
+            Output data type
+
+        dir : str, default=same as input or current directory
+            Output directory
+
+        ext : str, default=same as input or '.nii.gz'
+            Output extension
+
+        prefix : str, optional
+            Output filename prefix
+
+        basename : str, default=prefixed input or prefix or 'array'
+            Output basename
+
+        fname : str
+            Output file name (full path + name + extension).
+            Default: built from dir/prefix/basename/ext
+
+        dummy : bool, default=False
+            Do not write anything
+
+        """
         self.affine = affine
         self.header = header
         self.extra = extra
@@ -170,81 +259,50 @@ class VolumeWriter:
     def write(self, x, fname=None, info=None, affine=None, header=None,
               extra=None, dtype=None, dir=None, ext=None, prefix=None,
               basename=None, dummy=None):
+
         # --- If dummy, do not do anything ---
-        if dummy is None:
-            dummy = self.dummy
+        dummy = argdef(dummy, self.dummy)
         if dummy:
             return x
+
         # --- Parse options ---
-        if affine is None:
-            affine = self.affine
-        if header is None:
-            header = self.header
-        if extra is None:
-            extra = self.extra
-        if dtype is None:
-            dtype = self.dtype
-        if dir is None:
-            dir = self.dir
-        if ext is None:
-            ext = self.ext
-        if prefix is None:
-            prefix = self.prefix
-        if basename is None:
-            basename = self.basename
-        if fname is None:
-            fname = self.fname
-        # --- Use input info ---
-        if info is None:
-            info = {}
-        if affine is None:
-            affine = info.get('affine')
-        if header is None:
-            header = info.get('header')
-        if extra is None:
-            extra = info.get('extra')
-        if dtype is None:
-            dtype = info.get('dtype')
-        if dir is None:
-            dir = info.get('dir')
-        if ext is None:
-            ext = info.get('ext')
-        if basename is None:
-            basename = info.get('basename')
-        # --- Default values if everything is None ---
-        if ext is None:
-            ext = '.nii.gz'
-        if dir is None:
-            dir = '.'
-        if prefix is None:
-            prefix = ''
-        if dtype is None:
-            dtype = x.dtype
-        if basename is None:
-            if len(prefix) == 0:
-                basename = 'array'
-            else:
-                basename = ''
-        # --- Build full file name ---
-        if fname is None:
-            fname = prefix + basename + ext
-            fname = os.path.join(dir, fname)
+        # Priority is: function argument / attributes / defaults
+        info = argdef(info, {})
+        affine = argdef(affine, self.affine, info.get('affine'))
+        header = argdef(header, self.header, info.get('header'))
+        extra = argdef(extra, self.extra, info.get('extra'))
+        dtype = np.dtype(argdef(dtype, self.dtype, info.get('dtype'), x.dtype))
+        dir = argdef(dir, self.dir, info.get('dir'), '.')
+        ext = argdef(ext, self.ext, info.get('ext'), '.nii.gz')
+        prefix = argdef(prefix, self.prefix, info.get('prefix'), '')
+        basename = argdef(basename, self.basename, info.get('basename'),
+                          'array' if len(prefix) == 0 else '')
+        fname = argdef(fname, self.fname,
+                       os.path.join(dir, prefix + basename + ext))
 
-        # Some formats do not like 4D volumes, even if the fourth
-        # dimension is a singleton. In this case, we remove the fourth
-        # dimension. However, if the fourth dimension is > 1, we let it
-        # untouched in order to trigger warnings or errors.
-        if len(x.shape) > 3 and np.all(np.array(x.shape[3:]) == 1):
-            x = x.reshape(x.shape[:3])
+        if ext in ('.npy', '.npz'):
+            # --- Save using numpy ---
+            np.save(fname, x.astype(dtype), allow_pickle=False)
+            obj = np.load(fname, allow_pickle=False, mmap_mode='r')
 
-        # Build nibabel object
-        dtype = np.dtype(dtype)
-        onib = nb.spatialimages.SpatialImage(x, affine, header, extra)
-        onib.header.set_data_dtype(dtype)
-        onib.header.set_data_shape(x.shape)
+        else:
+            # --- Save using nibabel ---
 
-        # Save on disk
-        nb.save(onib, fname)
-        return onib
+            # Some formats do not like 4D volumes, even if the fourth
+            # dimension is a singleton. In this case, we remove the fourth
+            # dimension. However, if the fourth dimension is > 1, we let it
+            # untouched in order to trigger warnings or errors.
+            if len(x.shape) > 3 and np.all(np.array(x.shape[3:]) == 1):
+                x = x.reshape(x.shape[:3])
+
+            # Build nibabel object
+            obj = SpatialImage(x.astype(dtype), affine, header, extra)
+            obj.header.set_data_dtype(dtype)
+            obj.header.set_data_shape(x.shape)
+
+            # Save on disk
+            nb.save(obj, fname)
+
+        return obj
 
 

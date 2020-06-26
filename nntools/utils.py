@@ -54,10 +54,55 @@ def expand_images(images, ext=None):
     return oimages
 
 
-def argpad(arg, n):
+def argpad(arg, n, default=None):
+    """Pad/crop list so that its length is ``n``.
+
+    Parameters
+    ----------
+    arg : scalar or iterable
+        Input argument(s)
+    n : int
+        Target length
+    default : optional
+        Default value to pad with. By fefault, replicate the last value
+
+    Returns
+    -------
+    arg : list
+        Output arguments
+
+    """
     try:
         arg = list(arg)[:n]
     except TypeError:
         arg = [arg]
-    arg += arg[-1:] * max(0, n - len(arg))
+    if default is None:
+        default = arg[-1]
+    arg += [default] * max(0, n - len(arg))
+    return arg
+
+
+def argdef(*args):
+    """Return the first non-None value from a list of arguments.
+
+    Parameters
+    ----------
+    value0
+        First potential value. If None, try value 1
+    value1
+        Second potential value. If None, try value 2
+    ...
+    valueN
+        Last potential value
+
+    Returns
+    -------
+    value
+        First non-None value
+
+    """
+    args = list(args)
+    arg = args.pop(0)
+    while arg is None and len(args) > 0:
+        arg = args.pop(0)
     return arg
