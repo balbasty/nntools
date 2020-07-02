@@ -33,7 +33,7 @@ class Reslicer:
     """
 
     def __init__(self, output_affine=None, output_shape=None, *,
-                 order=1, bound='mirror', compute_map=False,
+                 order=1, bound='mirror', extrapolate=False, compute_map=False,
                  writer=VolumeWriter(prefix='resliced_'),
                  map_writer=VolumeWriter(prefix='map_')):
         """
@@ -52,6 +52,10 @@ class Reslicer:
         bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
             Boundary conditions when sampling out-of-bounds
 
+        extrapolate : bool, default=False
+            Use boundary conditions to extrapolate data outside of
+            the original field-of-view.
+
         compute_map : bool, default=False
             Compute reliability map
 
@@ -65,6 +69,7 @@ class Reslicer:
         self.output_shape = output_shape
         self.order = order
         self.bound = bound
+        self.extrapolate = extrapolate
         self.compute_map = compute_map
         self.reader = VolumeReader()
         self.writer = writer
@@ -72,7 +77,7 @@ class Reslicer:
 
     def reslice(self, x,
                 input_affine=None, output_affine=None, output_shape=None, *,
-                order=None, bound=None, compute_map=None):
+                order=None, bound=None, extrapolate=None, compute_map=None):
         """
 
         Parameters
@@ -95,6 +100,10 @@ class Reslicer:
         bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
                 default=self.bound
             Boundary conditions when sampling out-of-bounds
+
+        extrapolate : bool, default=self.extrapolate
+            Use boundary conditions to extrapolate data outside of
+            the original field-of-view.
 
         compute_map : bool, default=self.compute_map
             Compute reliability map
@@ -127,6 +136,8 @@ class Reslicer:
             order = self.order
         if bound is None:
             bound = self.bound
+        if extrapolate is None:
+            extrapolate = self.extrapolate
         if compute_map is None:
             compute_map = self.compute_map
 
@@ -135,6 +146,7 @@ class Reslicer:
         Mo = np.array(output_affine)
         M = np.linalg.lstsq(Mi, Mo, rcond=None)[0]
         g = affine_grid(M, output_shape, dtype=np.float32)
+        input_shape = x.shape[:3]
 
         # Sample
         if order > 1:
@@ -144,6 +156,13 @@ class Reslicer:
         # x = sample_grid(x, g, order, bound)
         x = map_coordinates(x, g.transpose((3, 0, 1, 2)),
                             order=order, mode=bound, prefilter=False)
+
+        # Mask of out-of-bound voxels
+        if not extrapolate:
+            msk = (g[..., 0] < 0) | (g[..., 0] >= input_shape[0]) \
+                | (g[..., 1] < 0) | (g[..., 1] >= input_shape[1]) \
+                | (g[..., 2] < 0) | (g[..., 2] >= input_shape[2])
+            x[msk] = 0
 
         x = self.writer(x, info=info, affine=output_affine)
 
@@ -171,6 +190,12 @@ class ReslicerLike(Reslicer):
         info = self.reader.inspect(reference_volume)
         output_affine = info.get('affine')
         output_shape = info.get('shape')
+
+        # Specify default for extrapolate
+        if kwargs.get('extrapolate') is None:
+            kwargs['extrapolate'] = self.extrapolate
+        if kwargs.get('extrapolate')  is None:
+            kwargs['extrapolate'] = False
 
         return super().reslice(x, input_affine=input_affine,
                                output_affine=output_affine,
@@ -282,6 +307,12 @@ class Resizer(Reslicer):
             output_shape = self.output_shape
         if output_shape is None:
             output_shape = [np.floor(i*s) for i, s in zip(input_shape, factor)]
+
+        # Specify default for extrapolate
+        if kwargs.get('extrapolate') is None:
+            kwargs['extrapolate'] = self.extrapolate
+        if kwargs.get('extrapolate')  is None:
+            kwargs['extrapolate'] = True
 
         return super().reslice(x, input_affine=input_affine,
                                output_affine=output_affine,
@@ -484,7 +515,8 @@ if __name__ == '__main__':
     common = ArgumentParser(add_help=False)
     common.add_argument('--images', '-i', nargs='+', metavar='IMAGE', required=True, help='Input images')
     common.add_argument('--order', type=int, default=1, help='Interpolation order [default: 1]')
-    common.add_argument('--bound', choices=['warp', 'nearest', 'mirror', 'reflect'], default='mirror', help='Boundary condition [default: mirror]')
+    common.add_argument('--bound', choices=['warp', 'nearest', 'mirror', 'reflect', 'zero'], default='mirror', help='Boundary condition [default: mirror]')
+    common.add_argument('--extrapolate', type=bool, default=None, help='Extrapolate out-of-bound [default: False if `reference` else True]')
     common.add_argument('--compute-map', default=False, action='store_true', dest='compute_map', help='Compute reliability maps [default: False]')
     common.add_argument('--output-dtype', '-dt', metavar='TYPE', default=None, dest='output_dtype', help='Output data type [default: same as input]')
     common.add_argument('--output-dir', '-o', metavar='DIR', default=None, dest='output_dir', help='Output directory [default: same as input]')
@@ -537,7 +569,8 @@ if __name__ == '__main__':
     # Initialize appropriate reslicer
     common_kwargs = {
         'order': args.order,
-        'bound': args.bound,
+        'bound': args.bound if args.bound != 'zero' else 0,
+        'extrapolate': args.extrapolate,
         'compute_map': args.compute_map,
         'writer': writer,
         'map_writer': map_writer,
