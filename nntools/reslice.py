@@ -159,9 +159,9 @@ class Reslicer:
 
         # Mask of out-of-bound voxels
         if not extrapolate:
-            msk = (g[..., 0] < 0) | (g[..., 0] >= input_shape[0]) \
-                | (g[..., 1] < 0) | (g[..., 1] >= input_shape[1]) \
-                | (g[..., 2] < 0) | (g[..., 2] >= input_shape[2])
+            msk = (g[..., 0] < 0) | (g[..., 0] > input_shape[0]-1) \
+                | (g[..., 1] < 0) | (g[..., 1] > input_shape[1]-1) \
+                | (g[..., 2] < 0) | (g[..., 2] > input_shape[2]-1)
             x[msk] = 0
 
         x = self.writer(x, info=info, affine=output_affine)
