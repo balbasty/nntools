@@ -455,7 +455,7 @@ class VXResizer(Resizer):
         """
 
         info = self.reader.inspect(x)
-        input_vs = (info.get('affine')[:3, :3] ** 2).sum(axis=1)
+        input_vs = np.sqrt((info.get('affine')[:3, :3] ** 2).sum(axis=0))
 
         if output_vs is None:
             output_vs = self.output_vs
@@ -463,6 +463,9 @@ class VXResizer(Resizer):
 
         # Compute factor
         factor = [i/o for o, i in zip(output_vs, input_vs)]
+        print(input_vs)
+        print(output_vs)
+        print(factor)
 
         # Call resizer
         return super().reslice(x, factor, **kwargs)
