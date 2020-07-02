@@ -1,20 +1,11 @@
-"""Tools for reslicing volumes.
+"""Tools for reslicing volumes implemented in an Object-Oriented paradigm."""
 
-Reslicing is the sequential process of:
-- interpolation          -> transform a discrete set of points into a
-                            continuous function;
-- spatial transformation -> compose the continous image function with
-                            a spatial transform _i.e._, a change of
-                            coordinates;
-- resampling             -> evaluate the transformed function at a new
-                            set of discrete points.
+# WARNING: reslice.F imports reslice.O, so the opposite import is forbidden
 
-"""
-
-
-from .io import VolumeReader, VolumeWriter
-from .interpolate import affine_grid, sample_grid, reliability_grid
-from .utils import argpad
+from ..io import VolumeReader, VolumeWriter, VolumeConverter, isfile
+from ..interpolate import affine_grid, sample_grid, reliability_grid
+from ..utils import argpad, argdef
+from ..linalg import lmdiv, rmdiv
 import numpy as np
 from scipy.ndimage.interpolation import spline_filter1d
 from scipy.ndimage import map_coordinates
@@ -75,24 +66,24 @@ class Reslicer:
         self.writer = writer
         self.map_writer = map_writer
 
-    def reslice(self, x,
-                input_affine=None, output_affine=None, output_shape=None, *,
-                order=None, bound=None, extrapolate=None, compute_map=None):
-        """
+    def __call__(self, x,
+                 output_affine=None, output_shape=None, input_affine=None, *,
+                 order=None, bound=None, extrapolate=None, compute_map=None):
+        """Reslice a volume to a target shape and orientation (affine matrix).
 
         Parameters
         ----------
         x : str or array_like
             Input volume.
 
-        input_affine : matrix_like, default=guessed from input
-            Input orientation matrix, mapping voxels to world space
-
         output_affine : matrix_like, default=self.output_affine
             Output orientation matrix, mapping voxels to world space
 
         output_shape : iterable, default=self.output_shape
             Output (3D spatial) shape
+
+        input_affine : matrix_like, default=guessed from input
+            Input orientation matrix, mapping voxels to world space
 
         order : int, default=self.order
             Interpolation order
@@ -110,8 +101,11 @@ class Reslicer:
 
         Returns
         -------
-        y : array_like
-            Output volume
+        y : np.ndarray
+            Resliced volume
+
+        map : file_like or np.ndarray, optional
+            Reliability map
 
         """
 
@@ -119,32 +113,19 @@ class Reslicer:
         x, info = self.reader(x, dtype=np.float32)
 
         # Parse options
-        if input_affine is None:
-            input_affine = info.get('affine')
-        if input_affine is None:
-            input_affine = np.eye(4)
-        if output_affine is None:
-            output_affine = self.output_affine
-        if output_affine is None:
-            output_affine = np.eye(4)
-        if output_shape is None:
-            output_shape = self.output_shape
-        if output_shape is None:
-            output_shape = x.shape
+        input_affine = argdef(input_affine, info.get('affine'), np.eye(4))
+        output_affine = argdef(output_affine, self.output_affine, input_affine)
+        output_shape = argdef(output_shape, self.output_shape, x.shape)
         output_shape = output_shape[:3]
-        if order is None:
-            order = self.order
-        if bound is None:
-            bound = self.bound
-        if extrapolate is None:
-            extrapolate = self.extrapolate
-        if compute_map is None:
-            compute_map = self.compute_map
+        order = argdef(order, self.order, 1)
+        bound = argdef(bound, self.bound, 'mirror')
+        extrapolate = argdef(extrapolate, self.extrapolate, False)
+        compute_map = argdef(compute_map, self.compute_map, False)
 
         # Compute affine map
         Mi = np.array(input_affine)
         Mo = np.array(output_affine)
-        M = np.linalg.lstsq(Mi, Mo, rcond=None)[0]
+        M = rmdiv(Mi, Mo)
         g = affine_grid(M, output_shape, dtype=np.float32)
         input_shape = x.shape[:3]
 
@@ -177,13 +158,50 @@ class Reslicer:
 
 
 class ReslicerLike(Reslicer):
-    """Reslice a volue to the space of another volume."""
+    """Reslice a volume to the space of another volume."""
 
     def __init__(self, reference_volume=None, **kwargs):
         super().__init__(**kwargs)
         self.reference_volume = reference_volume
 
-    def reslice(self, x, input_affine=None, reference_volume=None, **kwargs):
+    def __call__(self, x, reference_volume=None, input_affine=None, **kwargs):
+        """Reslice a volume to the space of another volume.
+
+        Parameters
+        ----------
+        x : str or array_like
+            Input volume.
+
+        reference_volume : fiel_like or array_like
+            Reference volume, whose shape and affine matrix define the
+            reference space
+
+        input_affine : matrix_like, default=guessed from input
+            Input orientation matrix, mapping voxels to world space
+
+        order : int, default=self.order
+            Interpolation order
+
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
+                default=self.bound
+            Boundary conditions when sampling out-of-bounds
+
+        extrapolate : bool, default=self.extrapolate
+            Use boundary conditions to extrapolate data outside of
+            the original field-of-view.
+
+        compute_map : bool, default=self.compute_map
+            Compute reliability map
+
+        Returns
+        -------
+        y : np.ndarray
+            Resliced volume
+
+        map : file_like or np.ndarray, optional
+            Reliability map
+
+        """
 
         if reference_volume is None:
             reference_volume = self.reference_volume
@@ -199,10 +217,11 @@ class ReslicerLike(Reslicer):
         if kwargs.get('extrapolate')  is None:
             kwargs['extrapolate'] = False
 
-        return super().reslice(x, input_affine=input_affine,
-                               output_affine=output_affine,
-                               output_shape=output_shape,
-                               **kwargs)
+        return super().__call__(x,
+                                output_affine=output_affine,
+                                output_shape=output_shape,
+                                input_affine=input_affine,
+                                **kwargs)
 
 
 class Resizer(Reslicer):
@@ -250,7 +269,7 @@ class Resizer(Reslicer):
         self.factor = factor
         self.output_shape = output_shape
 
-    def reslice(self, x, factor=None, output_shape=None, **kwargs):
+    def __call__(self, x, factor=None, output_shape=None, **kwargs):
         """
 
         Parameters
@@ -316,10 +335,10 @@ class Resizer(Reslicer):
         if kwargs.get('extrapolate')  is None:
             kwargs['extrapolate'] = True
 
-        return super().reslice(x, input_affine=input_affine,
-                               output_affine=output_affine,
-                               output_shape=output_shape,
-                               **kwargs)
+        return super().__call__(x, input_affine=input_affine,
+                                output_affine=output_affine,
+                                output_shape=output_shape,
+                                **kwargs)
 
 
 class Upsampler(Resizer):
@@ -349,8 +368,8 @@ class Downsampler(Resizer):
         return 1/f
 
 
-class FOVResizer(Resizer):
-    """Resize the FOV of an image to match a target FOV.
+class ShapeResizer(Resizer):
+    """Resize the shape of an image to match a target shape.
 
     The top-left and bottom right corners of both field-of-views are
     used as anchors.
@@ -383,7 +402,7 @@ class FOVResizer(Resizer):
         super().__init__(**kwargs)
         self.output_shape = output_shape
 
-    def reslice(self, x, output_shape=None, **kwargs):
+    def __call__(self, x, output_shape=None, **kwargs):
         """
 
         Parameters
@@ -422,10 +441,10 @@ class FOVResizer(Resizer):
         factor = [o/i for o, i in zip(output_shape, input_shape)]
 
         # Call resizer
-        return super().reslice(x, factor, output_shape, **kwargs)
+        return super().__call__(x, factor, output_shape, **kwargs)
 
 
-class VXResizer(Resizer):
+class VoxelResizer(Resizer):
     """Resize the voxel size of an image to match a target voxel size.
 
     The top-left and bottom right corners of both field-of-views are
@@ -459,7 +478,7 @@ class VXResizer(Resizer):
         super().__init__(**kwargs)
         self.output_vs = output_vs
 
-    def reslice(self, x, output_vs=None, **kwargs):
+    def __call__(self, x, output_vs=None, **kwargs):
         """
 
         Parameters
@@ -496,100 +515,6 @@ class VXResizer(Resizer):
 
         # Compute factor
         factor = [i/o for o, i in zip(output_vs, input_vs)]
-        print(input_vs)
-        print(output_vs)
-        print(factor)
 
         # Call resizer
-        return super().reslice(x, factor, **kwargs)
-
-# ----------------------------------------------------------------------
-#                          COMMAND LINE VERSION
-# ----------------------------------------------------------------------
-
-
-if __name__ == '__main__':
-    import os.path
-    from argparse import ArgumentParser
-    from .utils import expand_images
-
-    # Common options
-    common = ArgumentParser(add_help=False)
-    common.add_argument('--images', '-i', nargs='+', metavar='IMAGE', required=True, help='Input images')
-    common.add_argument('--order', type=int, default=1, help='Interpolation order [default: 1]')
-    common.add_argument('--bound', choices=['warp', 'nearest', 'mirror', 'reflect', 'zero'], default='mirror', help='Boundary condition [default: mirror]')
-    common.add_argument('--extrapolate', type=bool, default=None, help='Extrapolate out-of-bound [default: False if `reference` else True]')
-    common.add_argument('--compute-map', default=False, action='store_true', dest='compute_map', help='Compute reliability maps [default: False]')
-    common.add_argument('--output-dtype', '-dt', metavar='TYPE', default=None, dest='output_dtype', help='Output data type [default: same as input]')
-    common.add_argument('--output-dir', '-o', metavar='DIR', default=None, dest='output_dir', help='Output directory [default: same as input]')
-    common.add_argument('--output-prefix', '-p', metavar='PREFIX', default=None, dest='output_prefix', help='Output prefix [default: resliced_]')
-    common.add_argument('--map-prefix',  metavar='PREFIX', default=None, dest='map_prefix', help='Output prefix for confidence maps [default: map_]')
-    common.add_argument('--output-format', '-f', metavar='FORMAT', default=None, dest='output_ext', help='Output extension [default: same as input]')
-
-    # Methods
-    parser = ArgumentParser()
-    sub = parser.add_subparsers()
-    ref = sub.add_parser('reference', parents=[common], help='Reslice to reference space')
-    ref.add_argument('reference', metavar='REF', help='Reference volume')
-    ref.set_defaults(klass=ReslicerLike)
-    up = sub.add_parser('upsample', parents=[common], help='Upsample volume by a factor')
-    up.add_argument('factor', metavar='FACTOR', type=float, nargs='+', help='Upsampling factor')
-    up.set_defaults(klass=Upsampler)
-    down = sub.add_parser('downsample', parents=[common], help='Downsample volume by a factor')
-    down.add_argument('factor', metavar='FACTOR', type=float, nargs='+', help='Upsampling factor')
-    down.set_defaults(klass=Downsampler)
-    resize = sub.add_parser('resize', parents=[common], help='Resize a volume to match a target shape')
-    resize.add_argument('shape', metavar='SHAPE', type=int, nargs='+', help='Output shape')
-    resize.set_defaults(klass=FOVResizer)
-    resize = sub.add_parser('rescale', parents=[common], help='Rescale a volume to match a target voxel size')
-    resize.add_argument('vs', metavar='VOXELSIZE', type=int, nargs='+', help='Output voxel size')
-    resize.set_defaults(klass=VXResizer)
-
-    # Parse
-    args = parser.parse_args()
-
-    # Output options
-    output_kwargs = {
-        'dtype': args.output_dtype,
-        'dir': args.output_dir,
-        'prefix': args.output_prefix,
-        'ext': args.output_ext,
-    }
-    if output_kwargs['dtype'] is not None:
-        output_kwargs['dtype'] = np.dtype(output_kwargs['dtype'])
-    if output_kwargs['ext'] and not output_kwargs['ext'].startswith('.'):
-        output_kwargs['ext'] = '.' + output_kwargs['ext']
-    if output_kwargs['prefix'] is None:
-        output_kwargs['prefix'] = 'resliced_'
-    writer = VolumeWriter(**output_kwargs)
-
-    output_kwargs['prefix'] = args.map_prefix
-    if output_kwargs['prefix'] is None:
-        output_kwargs['prefix'] = 'map_'
-    map_writer = VolumeWriter(**output_kwargs)
-
-    # Initialize appropriate reslicer
-    common_kwargs = {
-        'order': args.order,
-        'bound': args.bound if args.bound != 'zero' else 0,
-        'extrapolate': args.extrapolate,
-        'compute_map': args.compute_map,
-        'writer': writer,
-        'map_writer': map_writer,
-    }
-    if args.klass is ReslicerLike:
-        reference = os.path.expanduser(args.reference)
-        obj = args.klass(reference_volume=reference, **common_kwargs)
-    elif args.klass is Upsampler or args.klass is Downsampler:
-        obj = args.klass(factor=args.factor, **common_kwargs)
-    elif args.klass is FOVResizer:
-        obj = args.klass(output_shape=args.shape, **common_kwargs)
-    elif args.klass is VXResizer:
-        obj = args.klass(output_vs=args.vs, **common_kwargs)
-    else:
-        raise NotImplementedError
-
-    # DoIt
-    images = expand_images(args.images)
-    for i in images:
-        obj.reslice(i)
+        return super().__call__(x, factor, **kwargs)

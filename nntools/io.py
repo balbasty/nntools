@@ -13,6 +13,11 @@ from .utils import argpad, argdef
 # - use mmap_mode rather than allow_memmmap
 
 
+def isfile(x):
+    """Return True if the volume is a file on disk."""
+    return isinstance(x, str) or isinstance(x, SpatialImage)
+
+
 def _default_affine(shape):
     """Create default orientation matrix.
 
@@ -79,19 +84,64 @@ class VolumeReader:
         self.allow_pickle = allow_pickle
 
     def __call__(self, *args, **kwargs):
+        """Load (and convert) data stored in a file or array.
+
+        Parameters
+        ----------
+        x : str or nib.SpatialImage or array_like
+            An input array, on disk or in memory.
+
+        dtype : type or str, default=self.dtype
+            Data type in which to load the input array.
+
+        allow_memmap : bool, default=self.allow_memmap
+            Allow ``np.memmap`` arrays (i.e., memory-mapped arrays)
+            to be returned.
+
+        copy : bool, default=self.copy
+            Force the input object to be copied, even if it is already
+            an array of the right data type.
+
+        order : {'K', 'A', 'C', 'F'}, default=self.order
+            Specify a specific memory layout.
+
+        Returns
+        -------
+        x : np.ndarray
+            A numpy array with the specified dtype and memory layout.
+
+        """
         return self.read(*args, **kwargs)
 
     def inspect(self, x):
-        info = {
-            'basename': None,
-            'dir': None,
-            'ext': None,
-            'dtype': None,
-            'shape': None,
-            'affine': None,
-            'header': None,
-            'extra': None,
-        }
+        """Read information about a volume.
+
+        Parameters
+        ----------
+        x : str or SpatialImage or array_like
+            Input volume
+
+        Returns
+        -------
+        info : dict
+            Information with optional keys:
+            * dir: Directory where the file is located
+            * basename: Name of the file without the extension
+            * ext: Extension. Extensions are defined as the chunk
+                  of the file name that starts with the last dot
+                  (e.g., 'myfile.nb1.nii' -> '.nii').
+                  An exception is made for gzipped files: if a file
+                  ends with '.gz', the extension is defined as the chunk
+                  that starts with the second to last dot
+                  (e.g., 'myfile.nb1.nii.gz' -> '.nii.gz').
+            * dtype: Input data type
+            * affine: Affine orientation matrix (from nibabel)
+            * header: File header (from nibabel)
+            * extra: File extra fields (from nibabel)
+            * shape: Volume shape (three elements)
+
+        """
+        info = dict()
         # If str -> split path into directory / basename / extension
         if isinstance(x, str):
             path, basename, ext = _fileparts(x)
@@ -144,10 +194,16 @@ class VolumeReader:
         order : {'K', 'A', 'C', 'F'}, default=self.order
             Specify a specific memory layout.
 
+        read_info: bool, default=True
+            If true, read and return the info dictionary (see ``inspect``)
+
         Returns
         -------
         x : np.ndarray
             A numpy array with the specified dtype and memory layout.
+
+        info : dict, optional
+            Dictionary with information about the file (see ``inspect``)
 
         """
         dtype = np.dtype(argdef(dtype, self.dtype))
@@ -304,5 +360,63 @@ class VolumeWriter:
             nb.save(obj, fname)
 
         return obj
+
+
+class VolumeConverter:
+    """Converter for ndarrays."""
+
+    def __init__(self, dtype=None):
+        """
+
+        Parameters
+        ----------
+        dtype : str or type, optional
+            Output data type
+
+        """
+        self.dtype = dtype
+
+    def __call__(self, *args, **kwargs):
+        """Convert an array to a target data type.
+
+        Parameters
+        ----------
+        x : array_like
+            Array to convert
+        dtype : str or type, default=self.dtype or info['dtype'] or x.dtype
+            Output data type
+        info : dict, default={}
+            Volume information as returned by ``VolumeReader``
+
+        Returns
+        -------
+        x : np.ndarray
+            Array of type ``dtype``
+
+        """
+        return self.write(*args, **kwargs)
+
+    def write(self, x, dtype=None, info=None):
+        """Convert an array to a target data type.
+
+        Parameters
+        ----------
+        x : array_like
+            Array to convert
+        dtype : str or type, default=self.dtype or info['dtype'] or x.dtype
+            Output data type
+        info : dict, default={}
+            Volume information as returned by ``VolumeReader``
+
+        Returns
+        -------
+        x : np.ndarray
+            Array of type ``dtype``
+
+        """
+        x = np.asarray(x)
+        info = argdef(info, dict())
+        dtype = argdef(dtype, self.dtype, info.get('dtype'), x.dtype)
+        return x.astype(dtype)
 
 
