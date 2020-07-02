@@ -167,7 +167,7 @@ def dexpm(X, basis, max_order=10000, tol=1e-32):
     # Aliases
     E = X.copy()             # expm(X)
     dE = basis.copy()        # dexpm(X)
-    En = X.copy()            # n-th Taylor coefficients of expm
+    En = X.copy()            # n-th Taylor coefficient of expm
     dEn = basis.copy()       # n-th Taylor coefficient of dexpm
     for n_order in range(2, max_order+1):
         for n_basis in range(nb_basis):
@@ -182,3 +182,58 @@ def dexpm(X, basis, max_order=10000, tol=1e-32):
     E = E.astype(in_dtype)
     dE = dE.astype(in_dtype)
     return E, dE
+
+
+def check_commutative(mats):
+    """ Check if a list of matrices commmute.
+
+    Parameters
+    ----------
+    mats - (N, K, K) array_like or iterable[(K, K) array_like]
+
+    Returns
+    -------
+    is_commutative : bool
+        True if all pairs of matrices commute
+    table : (N, N) np.ndarray
+        Table of commutativity
+
+    """
+    mats = np.stack((mat for mat in mats))
+    nb_matrices = len(mats)
+    check = np.eye(nb_matrices, dtype=bool)
+    for i in range(nb_matrices):
+        for j in range(i, nb_matrices):
+            check[i, j] = np.allclose(mats[i, ...] @ mats[j, ...],
+                                      mats[j, ...] @ mats[i, ...])
+            check[j, i] = check[i, j]
+    return check.all(), check
+
+
+def check_orthonormal(mats):
+    """ Check if a list of matrices forms an orthonormal basis.
+
+    The basis is with respect to the matrix dot product:
+        <A, B> = trace(A.t() @ B)
+
+    Parameters
+    ----------
+    mats - (N, K, K) array_like or iterable[(K, K) array_like]
+
+    Returns
+    -------
+    is_orthonormal : bool
+        True if the basis is orthonormal
+    table : (N, N) np.ndarray
+        Dot product table
+
+    """
+    mats = np.stack((mat for mat in mats))
+    nb_matrices = len(mats)
+    dot = np.eye(nb_matrices, dtype=np.float64)
+    for i in range(nb_matrices):
+        for j in range(i, nb_matrices):
+            dot[i, j] = np.trace(mats[i, ...] @ mats[j, ...].transpose())
+            dot[j, i] = dot[i, j]
+    eye = np.eye(nb_matrices, dtype=np.float64)
+    return np.allclose(dot, eye), dot

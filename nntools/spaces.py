@@ -189,17 +189,21 @@ def affine_parameters(mat, basis=None, layout='RAS'):
 
 
 def affine_subbasis(mode, dim=3, dtype='float64'):
-    """Return a basis for the algebra of some (Lie) groups of matrices
+    """Return a basis for the algebra of some (Lie) groups of matrices.
+
+    The basis is returned in homogeneous coordinates, even if
+    the group required does not require translations. To extract the linear
+    part of the basis: lin = basis[:-1, :-1].
 
     Parameters
     ----------
     mode : {'T', 'R', 'Z', 'S', 'ISO'}
         Group that should be encoded by the basis set:
-        - 'T': Translations
-        - 'R': Rotations
-        - 'Z': zooms
-        - 'S': shears
-        = 'ISO': isotropic zoom
+        * 'T'   : Translations
+        * 'R'   : Rotations
+        * 'Z'   : zooms
+        * 'S'   : shears
+        * 'ISO' : isotropic zoom
     dim : {1, 2, 3}, default=3
         Dimension
     dtype : str or type, default='float64'
@@ -256,13 +260,19 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
 def affine_basis(group='SE', dim=3, dtype='float64'):
     """Generate basis set for the algebra of some (Lie) group of matrices.
 
+    The basis is returned in homogeneous coordinates, even if
+    the group required does not require translations. To extract the linear
+    part of the basis: lin = basis[:-1, :-1].
+
     Parameters
     ----------
     group : {'T', 'SO', 'SE'}, default='SE'
         Group that should be encoded by the basis set:
-        - 'T': Translations
-        - 'SO': Special Orthogonal (rotations)
-        - 'SE': Special Euclidean (translations + rotations)
+        * 'T'   : Translations
+        * 'SO'  : Special Orthogonal (rotations)
+        * 'SE'  : Special Euclidean (translations + rotations)
+        * 'SL'  : Special Linear (rotations + zooms + shears)
+        * 'Aff' : Affine (translations + rotations + zooms + shears)
     dim : {1, 2, 3}, default=3
         Dimension
     dtype : str or type, default='float64'
@@ -292,17 +302,17 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
     elif group == 'SO':
         return affine_subbasis('R', dim, dtype=dtype)
     elif group == 'SE':
-        return np.stack((affine_subbasis('T', dim, dtype=dtype),
-                         affine_subbasis('R', dim, dtype=dtype)))
+        return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
+                               affine_subbasis('R', dim, dtype=dtype)))
     elif group == 'SL':
-        return np.stack((affine_subbasis('R', dim, dtype=dtype),
-                         affine_subbasis('Z', dim, dtype=dtype),
-                         affine_subbasis('S', dim, dtype=dtype)))
+        return np.concatenate((affine_subbasis('R', dim, dtype=dtype),
+                               affine_subbasis('Z', dim, dtype=dtype),
+                               affine_subbasis('S', dim, dtype=dtype)))
     elif group == 'Aff':
-        return np.stack((affine_subbasis('T', dim, dtype=dtype),
-                         affine_subbasis('R', dim, dtype=dtype),
-                         affine_subbasis('Z', dim, dtype=dtype),
-                         affine_subbasis('S', dim, dtype=dtype)))
+        return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
+                               affine_subbasis('R', dim, dtype=dtype),
+                               affine_subbasis('Z', dim, dtype=dtype),
+                               affine_subbasis('S', dim, dtype=dtype)))
 
 
 def change_layout(mat, shape, layout='RAS'):
@@ -448,28 +458,33 @@ def mean_affine(mats, shapes):
 
     # STEP 3: Remove spurious shears
     # ------
-    # We want the matrix to be "rigid": the combination of a
-    # Find the matrix that can be encoded without shear bases that is
-    # the closest to the original matrix (in terms of the frobenius
-    # norm of the residual matrix)
+    # We want the matrix to be "rigid" = the combination of a
+    # rotation+translation (T*R) in world space and of a "voxel size"
+    # scaling (Z), i.e., M = T*R*Z.
+    # We look for the matrix that can be encoded without shear bases
+    # that is the closest to the original matrix (in terms of the
+    # Frobenius norm of the residual matrix)
     basis_shears = affine_subbasis('S', dim)
-    prm = affine_parameters(mat, basis_shears)
-    if (prm[-1:-dim-1:-1] ** 2).sum() > 1e-8:
+    prm_shears = affine_parameters(mat, basis_shears)
+    if (prm_shears ** 2).sum() > 1e-8:
         basis_rotation = affine_subbasis('R', dim)
-        basis_zoom     = affine_subbasis('Z', dim)
-        prm = affine_parameters(mat, np.stack((basis_rotation, basis_zoom)))
+        basis_zoom = affine_subbasis('Z', dim)
+        nb_prm_rotation = basis_rotation.shape[0]
+        basis = np.concatenate((basis_rotation, basis_zoom), axis=0)
+        prm = affine_parameters(mat, basis)
         for n_iter in range(10000):
-            R, dR = dexpm(prm, basis)
+            R, dR = dexpm(prm[:nb_prm_rotation], basis_rotation)
+            Z, dZ = dexpm(prm[nb_prm_rotation:], basis_zoom)
+            M = R*Z
+            dM = np.concatenate((np.matmul(dR, Z), np.matmul(R, dZ)))
             diff = M - mat
             gradient = np.tensordot(dM, diff.transpose, axis=2)
             hessian = np.tensordot(dM, dM.transpose, axis=2)
             prm = prm - lmdiv(hessian, gradient)
             if (gradient ** 2).sum() < 1e-8:
+                print('Early stopping at iteration {}'.format(n_iter))
                 break
-        mat = M
+        mat[:dim, :dim] = M[:dim, :dim]
 
     return mat
-
-
-def mean_space(mats, shapes, layout=None):
 
