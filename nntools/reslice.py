@@ -1,3 +1,17 @@
+"""Tools for reslicing volumes.
+
+Reslicing is the sequential process of:
+- interpolation          -> transform a discrete set of points into a
+                            continuous function;
+- spatial transformation -> compose the continous image function with
+                            a spatial transform _i.e._, a change of
+                            coordinates;
+- resampling             -> evaluate the transformed function at a new
+                            set of discrete points.
+
+"""
+
+
 from .io import VolumeReader, VolumeWriter
 from .interpolate import affine_grid, sample_grid, reliability_grid
 from .utils import argpad
@@ -378,6 +392,81 @@ class FOVResizer(Resizer):
         return super().reslice(x, factor, output_shape, **kwargs)
 
 
+class VXResizer(Resizer):
+    """Resize the voxel size of an image to match a target voxel size.
+
+    The top-left and bottom right corners of both field-of-views are
+    used as anchors.
+
+    """
+
+    def __init__(self, output_vs=None, **kwargs):
+        """
+
+        Parameters
+        ----------
+        output_vs : iterable, optional
+            Output voxel size
+
+        order : int, default=1
+            Interpolation order
+
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
+            Boundary conditions when sampling out-of-bounds
+
+        compute_map : bool, default=False
+            Compute reliability map
+
+        writer : io.VolumeWriter, optional
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, optional
+            Writer object for the reliability map
+        """
+        super().__init__(**kwargs)
+        self.output_vs = output_vs
+
+    def reslice(self, x, output_vs=None, **kwargs):
+        """
+
+        Parameters
+        ----------
+        x : str or array_like
+            Input volume.
+
+        output_vs : iterable, default=self.output_shape
+            Output voxel size
+
+        order : int, default=self.order
+            Interpolation order
+
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
+                default=self.bound
+            Boundary conditions when sampling out-of-bounds
+
+        compute_map : bool, default=self.compute_map
+            Compute reliability map
+
+        Returns
+        -------
+        y : array_like
+            Output volume
+
+        """
+
+        info = self.reader.inspect(x)
+        input_vs = (info.get('affine')[:3, :3] ** 2).sum(axis=1)
+
+        if output_vs is None:
+            output_vs = self.output_vs
+        output_vs = argpad(output_vs, 3)
+
+        # Compute factor
+        factor = [i/o for o, i in zip(output_vs, input_vs)]
+
+        # Call resizer
+        return super().reslice(x, factor, **kwargs)
+
 # ----------------------------------------------------------------------
 #                          COMMAND LINE VERSION
 # ----------------------------------------------------------------------
@@ -415,6 +504,9 @@ if __name__ == '__main__':
     resize = sub.add_parser('resize', parents=[common], help='Resize a volume to match a target shape')
     resize.add_argument('shape', metavar='SHAPE', type=int, nargs='+', help='Output shape')
     resize.set_defaults(klass=FOVResizer)
+    resize = sub.add_parser('rescale', parents=[common], help='Rescale a volume to match a target voxel size')
+    resize.add_argument('vs', metavar='VOXELSIZE', type=int, nargs='+', help='Output voxel size')
+    resize.set_defaults(klass=VXResizer)
 
     # Parse
     args = parser.parse_args()
@@ -453,7 +545,9 @@ if __name__ == '__main__':
     elif args.klass is Upsampler or args.klass is Downsampler:
         obj = args.klass(factor=args.factor, **common_kwargs)
     elif args.klass is FOVResizer:
-        obj = args.klass(outptu_shape=args.shape, **common_kwargs)
+        obj = args.klass(output_shape=args.shape, **common_kwargs)
+    elif args.klass is VXResizer:
+        obj = args.klass(output_vs=args.vs, **common_kwargs)
     else:
         raise NotImplementedError
 

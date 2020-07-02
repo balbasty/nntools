@@ -10,5 +10,5 @@ setup(
     author_email='yael.balbastre@gmail.com',
     description='Preprocessing tools for computer vision / neural networks',
     python_requires='>=3',
-    install_requires=['nibabel', 'numpy']
+    install_requires=['nibabel', 'numpy', 'scipy']
 )

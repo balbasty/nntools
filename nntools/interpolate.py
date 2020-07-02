@@ -1,5 +1,6 @@
 import numpy as np
 import itertools
+from .utils import sub2ind
 
 
 def identity_grid(shape, dtype=None):
@@ -241,32 +242,4 @@ def bound_mirror(i, n, inplace=True):
         return i
 
 
-def sub2ind(subs, shape):
-    """Convert sub indices (i, j, k) into linear indices.
-
-    Parameters
-    ----------
-    subs : iterable of array_like
-        List of sub-indices. Its length is the number of dimension.
-        Each element should have the same number of elements and shape.
-    shape : iterable
-        Size of each dimension. Its length should be the same as the
-        length of ``subs``.
-
-    Returns
-    -------
-    ind : np.array
-        Linear indices
-
-    """
-    dim = len(shape)
-    if isinstance(subs, np.ndarray) and subs.shape[-1] == dim:
-        subs = [subs[..., d] for d in range(dim)]
-    ind = np.zeros_like(subs[0])
-    # The rightmost dimension is the most rapidly changing one
-    # -> if shape == [D, H, W], the strides are therefore [H*W, W, 1]
-    stride = np.cumprod(shape[:0:-1])[::-1].tolist() + [1]
-    for i, s in zip(subs, stride):
-        ind += np.asarray(i) * s
-    return ind
 

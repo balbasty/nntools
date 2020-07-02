@@ -1,5 +1,7 @@
 import os.path
 from glob import glob
+from collections import Counter
+import numpy as np
 
 # This bit gives some flexibility for the input files:
 # . unix-style ~ (HOME) is always expanded
@@ -106,3 +108,57 @@ def argdef(*args):
     while arg is None and len(args) > 0:
         arg = args.pop(0)
     return arg
+
+
+def sub2ind(subs, shape):
+    """Convert sub indices (i, j, k) into linear indices.
+
+    Parameters
+    ----------
+    subs : iterable of array_like
+        List of sub-indices. Its length is the number of dimension.
+        Each element should have the same number of elements and shape.
+    shape : iterable
+        Size of each dimension. Its length should be the same as the
+        length of ``subs``.
+
+    Returns
+    -------
+    ind : np.array
+        Linear indices
+
+    """
+    dim = len(shape)
+    if isinstance(subs, np.ndarray) and subs.shape[-1] == dim:
+        subs = [subs[..., d] for d in range(dim)]
+    ind = np.zeros_like(subs[0])
+    # The rightmost dimension is the most rapidly changing one
+    # -> if shape == [D, H, W], the strides are therefore [H*W, W, 1]
+    stride = np.cumprod(shape[:0:-1])[::-1].tolist() + [1]
+    for i, s in zip(subs, stride):
+        ind += np.asarray(i) * s
+    return ind
+
+
+def majority(x):
+    """Return majority element in a list.
+
+    Parameters
+    ----------
+    x : iterable
+        Input list of elements
+
+    Returns
+    -------
+    elem
+        Majority element
+
+    """
+    count = Counter(x)
+    max_count = 0
+    maj_val = None
+    for (key, val) in count.items():
+        if val > max_count:
+            max_count = val
+            maj_val = key
+    return maj_val
