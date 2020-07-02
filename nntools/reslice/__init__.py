@@ -91,17 +91,17 @@ if __name__ == '__main__':
                       help='Upsampling factor')
     down.set_defaults(klass=Downsampler)
     # ---
-    # resize = resize_fov
+    # resize_fov
     # ---
-    resize = sub.add_parser('resize', parents=[common],
+    resize = sub.add_parser('resize_shape', parents=[common],
                             help='Resize a volume to match a target shape')
     resize.add_argument('shape',  type=int, nargs='+', metavar='SHAPE',
                         help='Output shape')
     resize.set_defaults(klass=ShapeResizer)
     # ---
-    # rescale = resize_vs
+    # resize_voxel
     # ---
-    rescale = sub.add_parser('rescale', parents=[common],
+    rescale = sub.add_parser('resize_voxel', parents=[common],
                              help='Rescale a volume to match a target '
                                   'voxel size')
     rescale.add_argument('vs', type=int, nargs='+', metavar='VOXELSIZE',
