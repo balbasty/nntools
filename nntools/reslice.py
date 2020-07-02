@@ -168,6 +168,8 @@ class Reslicer:
 
         if compute_map:
             map = reliability_grid(g)
+            if not extrapolate:
+                map[msk] = 0
             map = self.map_writer(map, info=info, affine=output_affine)
             return x, map
         else:
