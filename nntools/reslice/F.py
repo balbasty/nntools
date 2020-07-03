@@ -29,44 +29,43 @@ def reslice(x,
 
     Parameters
     ----------
-        x : file_like or array_like
-            Input volume
+    x : file_like or array_like
+        Input volume
 
-        input_affine : matrix_like, default=read from file
-            Input orientation matrix, mapping voxels to world space
+    input_affine : matrix_like, default=read from file
+        Input orientation matrix, mapping voxels to world space
 
-        output_affine : matrix_like, default=same as input
-            Output orientation matrix, mapping voxels to world space
+    output_affine : matrix_like, default=same as input
+        Output orientation matrix, mapping voxels to world space
 
-        output_shape : iterable, default=same as input
-            Output (3D spatial) shape
+    output_shape : iterable, default=same as input
+        Output (3D spatial) shape
 
-        order : int, default=1
-            Interpolation order
+    order : int, default=1
+        Interpolation order
 
-        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-                default='mirror'
-            Boundary conditions when sampling out-of-bounds
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+        Boundary conditions when sampling out-of-bounds
 
-        extrapolate : bool, default=False
-            Use boundary conditions to extrapolate data outside of
-            the original field-of-view.
+    extrapolate : bool, default=False
+        Use boundary conditions to extrapolate data outside of
+        the original field-of-view.
 
-        compute_map : bool, default=False
-            Compute reliability map
+    compute_map : bool, default=False
+        Compute reliability map
 
-        writer : io.VolumeWriter, optional
-            Writer object for the resliced image
+    writer : io.VolumeWriter, optional
+        Writer object for the resliced image
 
-        map_writer : io.VolumeWriter, optional
-            Writer object for the reliability map
+    map_writer : io.VolumeWriter, optional
+        Writer object for the reliability map
 
     Returns
     -------
-    x : file_like or np.ndarray
+    x : file_like or ndarray
         Resliced volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """
@@ -91,7 +90,7 @@ def reslice_like(x, reference_volume=None, input_affine=None, *,
     x : str or array_like
         Input volume.
 
-    reference_volume : fiel_like or array_like
+    reference_volume : file_like or array_like
         Reference volume, whose shape and affine matrix define the
         reference space
 
@@ -101,8 +100,7 @@ def reslice_like(x, reference_volume=None, input_affine=None, *,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -116,10 +114,10 @@ def reslice_like(x, reference_volume=None, input_affine=None, *,
 
     Returns
     -------
-    y : np.ndarray
+    y : ndarray
         Resliced volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """
@@ -158,8 +156,7 @@ def resize(x, factor, output_shape=None, *, writer=None, map_writer=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -173,10 +170,10 @@ def resize(x, factor, output_shape=None, *, writer=None, map_writer=None,
 
     Returns
     -------
-    y : array_like
+    y : ndarray
         Resized volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """
@@ -214,8 +211,7 @@ def upsample(x, factor=2, output_shape=None, *, writer=None, map_writer=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -229,10 +225,10 @@ def upsample(x, factor=2, output_shape=None, *, writer=None, map_writer=None,
 
     Returns
     -------
-    y : array_like
+    y : ndarray
         Resized volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """
@@ -271,8 +267,7 @@ def downsample(x, factor=2, output_shape=None, *, writer=None, map_writer=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -286,10 +281,10 @@ def downsample(x, factor=2, output_shape=None, *, writer=None, map_writer=None,
 
     Returns
     -------
-    y : array_like
+    y : ndarray
         Resized volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """
@@ -322,8 +317,7 @@ def resize_shape(x, output_shape=None, *, writer=None, map_writer=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -337,10 +331,10 @@ def resize_shape(x, output_shape=None, *, writer=None, map_writer=None,
 
     Returns
     -------
-    y : array_like
+    y : ndarray
         Resized volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """
@@ -372,8 +366,7 @@ def resize_voxel(x, output_vs=None, *, writer=None, map_writer=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -387,10 +380,10 @@ def resize_voxel(x, output_vs=None, *, writer=None, map_writer=None,
 
     Returns
     -------
-    y : array_like
+    y : ndarray
         Resized volume
 
-    map : file_like or np.ndarray, optional
+    map : file_like or ndarray, optional
         Reliability map
 
     """

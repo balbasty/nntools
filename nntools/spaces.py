@@ -18,12 +18,12 @@ def affine_layout(layout, dtype=np.float64):
     ----------
     layout : str
         Voxel layout are described by permutation of up to three letters:
-            . 'R' for _left to Right_ or
-              'L' for _right to Left_
-            . 'A' for _posterior to Anterior_ or
-              'P' for _anterior to Posterior_
-            . 'S' for _inferior to Superior_ or
-              'I' for _superior to Inferior
+            * 'R' for *left to Right* or
+              'L' for *right to Left*
+            * 'A' for *posterior to Anterior* or
+              'P' for *anterior to Posterior*
+            * 'S' for *inferior to Superior* or
+              'I' for *superior to Inferior*
         The most common layout is 'RAS', which maps to the "world"
         orientation 'RAS+' with an identity matrix.
         If the first voxel dimension browsed the brain from right to
@@ -199,11 +199,11 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
     ----------
     mode : {'T', 'R', 'Z', 'S', 'ISO'}
         Group that should be encoded by the basis set:
-        * 'T'   : Translations
-        * 'R'   : Rotations
-        * 'Z'   : zooms
-        * 'S'   : shears
-        * 'ISO' : isotropic zoom
+            * 'T'   : Translations
+            * 'R'   : Rotations
+            * 'Z'   : zooms
+            * 'S'   : shears
+            * 'ISO' : isotropic zoom
     dim : {1, 2, 3}, default=3
         Dimension
     dtype : str or type, default='float64'
@@ -266,13 +266,13 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
 
     Parameters
     ----------
-    group : {'T', 'SO', 'SE'}, default='SE'
+    group : {'T', 'SO', 'SE', 'SL', 'Aff'}, default='SE'
         Group that should be encoded by the basis set:
-        * 'T'   : Translations
-        * 'SO'  : Special Orthogonal (rotations)
-        * 'SE'  : Special Euclidean (translations + rotations)
-        * 'SL'  : Special Linear (rotations + zooms + shears)
-        * 'Aff' : Affine (translations + rotations + zooms + shears)
+            * 'T'   : Translations
+            * 'SO'  : Special Orthogonal (rotations)
+            * 'SE'  : Special Euclidean (translations + rotations)
+            * 'SL'  : Special Linear (rotations + zooms + shears)
+            * 'Aff' : Affine (translations + rotations + zooms + shears)
     dim : {1, 2, 3}, default=3
         Dimension
     dtype : str or type, default='float64'
@@ -280,7 +280,7 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
 
     Returns
     -------
-    basis : np.ndarray of shape (F, dim+1, dim+1)
+    basis : (F, dim+1, dim+1) ndarray
         Basis set, where ``F`` is the number of basis functions.
 
     """

@@ -1,12 +1,12 @@
 """Tools for reslicing volumes.
 
 Reslicing is the sequential process of:
-- interpolation          -> transform a discrete set of points into a
+* interpolation          -> transform a discrete set of points into a
                             continuous function;
-- spatial transformation -> compose the continous image function with
+* spatial transformation -> compose the continous image function with
                             a spatial transform _i.e._, a change of
                             coordinates;
-- resampling             -> evaluate the transformed function at a new
+* resampling             -> evaluate the transformed function at a new
                             set of discrete points.
 
 """
