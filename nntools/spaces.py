@@ -8,7 +8,7 @@ from scipy.linalg import logm, expm
 from copy import deepcopy
 
 
-def affine_layout(layout, dtype=np.float64):
+def affine_layout_matrix(layout, dtype=np.float64):
     """Compute the origin affine matrix for different voxel layouts.
 
     Resources
@@ -80,7 +80,7 @@ def affine_layout(layout, dtype=np.float64):
     return mat
 
 
-def affine_find_layout(mat):
+def affine_layout(mat):
     """Find the voxel layout associated with an affine matrix.
 
     Parameters
@@ -112,7 +112,7 @@ def affine_find_layout(mat):
     min_layout = None
 
     def check_space(space):
-        layout = affine_layout(space)[:dim, :dim]
+        layout = affine_layout_matrix(space)[:dim, :dim]
         sos = ((rmdiv(mat, layout) - I) ** 2).sum()
         if sos < min_sos:
             return space
@@ -195,7 +195,7 @@ def _format_basis(basis, dim=None):
     return basis, dim
 
 
-def affine_matrix(prm, basis, dim=None, layout='RAS', prod=True):
+def affine_matrix(prm, basis, dim=None, layout='RAS'):
     r"""Reconstruct an affine matrix from its Lie parameters.
 
     Affine matrices are encoded as product of sub-matrices, where
@@ -267,14 +267,11 @@ def affine_matrix(prm, basis, dim=None, layout='RAS', prod=True):
     # Add layout matrix
     if layout != 'RAS':
         if isinstance(layout, str):
-            layout = affine_layout(layout)
+            layout = affine_layout_matrix(layout)
         mats.append(layout)
 
     # Matrix product
-    if prod:
-        return mm(np.stack(mats)).astype(in_dtype)
-    else:
-        return mats
+    return mm(np.stack(mats)).astype(in_dtype)
 
 
 def _affine_parameters_single_basis(mat, basis, layout='RAS'):
@@ -282,7 +279,7 @@ def _affine_parameters_single_basis(mat, basis, layout='RAS'):
     # Project to tangent space
     if not isinstance(layout, str) or layout != 'RAS':
         if isinstance(layout, str):
-            layout = affine_layout(layout)
+            layout = affine_layout_matrix(layout)
         mat = rmdiv(mat, layout)
     mat = logm(mat)
 
@@ -349,7 +346,7 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
 
     # Create layout matrix
     if isinstance(layout, str):
-        layout = affine_layout(layout)
+        layout = affine_layout_matrix(layout)
 
     def gauss_newton():
         # Predefine these values in case max_iter == 0
@@ -441,10 +438,10 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
     return prm.astype(in_dtype), M.astype(in_dtype)
 
 
-affine_subbasis_choices = ('T', 'R', 'Z', 'S', 'ISO')
+affine_subbasis_choices = ('T', 'R', 'Z', 'S', 's')
 
 
-def affine_subbasis(mode, dim=3, dtype='float64'):
+def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
     """Return a basis for the algebra of some (Lie) groups of matrices.
 
     The basis is returned in homogeneous coordinates, even if
@@ -453,15 +450,20 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
 
     Parameters
     ----------
-    mode : {'T', 'R', 'Z', 'S', 'ISO'}
+    mode : {'T', 'R', 'Z', 'S', 'D'}
         Group that should be encoded by the basis set:
             * 'T'   : Translations
             * 'R'   : Rotations
-            * 'Z'   : zooms
-            * 'S'   : shears
-            * 'ISO' : isotropic zoom
+            * 'Z'   : Zooms (= anisotropic scalings)
+            * 'I'   : Isotropic scalings
+            * 'S'   : Shears
+
     dim : {1, 2, 3}, default=3
         Dimension
+
+    sub : int or list[int], optional
+        Request only subcomponents of the basis
+
     dtype : str or type, default='float64'
         Data type of the returned array
 
@@ -491,7 +493,7 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
         basis = np.zeros((dim, dim+1, dim+1), dtype=dtype)
         for i in range(dim):
             basis[i, i, i] = 1
-    elif mode == 'ISO':
+    elif mode == 'I':
         basis = np.zeros((1, dim+1, dim+1), dtype=dtype)
         for i in range(dim):
             basis[0, i, i] = 1
@@ -511,26 +513,38 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
                 basis[k, i, j] = 1/np.sqrt(2)
                 basis[k, j, i] = 1/np.sqrt(2)
                 k += 1
+
+    # Select subcomponents of the basis
+    if sub is not None:
+        try:
+            sub = list(sub)
+        except TypeError:
+            sub = [sub]
+        basis = np.stack((basis[i, ...] for i in sub))
+
     return basis
 
 
-affine_basis_choices =  ('T', 'SO', 'SE', 'SL', 'Aff')
+affine_basis_choices = ('T', 'D', 'SO', 'SE', 'SC', 'SL', 'Aff')
 
 
 def affine_basis(group='SE', dim=3, dtype='float64'):
     """Generate basis set for the algebra of some (Lie) group of matrices.
 
     The basis is returned in homogeneous coordinates, even if
-    the group required does not require translations. To extract the linear
+    the group does not require translations. To extract the linear
     part of the basis: lin = basis[:-1, :-1].
 
     Parameters
     ----------
-    group : {'T', 'SO', 'SE', 'SL', 'Aff'}, default='SE'
+    group : {'T', 'SO', 'SE', 'D', 'SC', 'SL', 'Aff'}, default='SE'
         Group that should be encoded by the basis set:
             * 'T'   : Translations
             * 'SO'  : Special Orthogonal (rotations)
             * 'SE'  : Special Euclidean (translations + rotations)
+            * 'D'   : Dilations (translations + isotropic scalings)
+            * 'SC'  : Special Conformal
+                      (translations + rotations + isotropic scalings)
             * 'SL'  : Special Linear (rotations + zooms + shears)
             * 'Aff' : Affine (translations + rotations + zooms + shears)
     dim : {1, 2, 3}, default=3
@@ -565,6 +579,13 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
     elif group == 'SE':
         return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
                                affine_subbasis('R', dim, dtype=dtype)))
+    elif group == 'D':
+        return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
+                               affine_subbasis('I', dim, dtype=dtype)))
+    elif group == 'SC':
+        return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
+                               affine_subbasis('R', dim, dtype=dtype),
+                               affine_subbasis('I', dim, dtype=dtype)))
     elif group == 'SL':
         return np.concatenate((affine_subbasis('R', dim, dtype=dtype),
                                affine_subbasis('Z', dim, dtype=dtype),
@@ -612,7 +633,7 @@ def change_layout(mat, shape, layout='RAS'):
     perms = list(itertools.permutations(range(dim)))
     flips = list(itertools.product([True, False], repeat=dim))
     if isinstance(layout, str):
-        layout = affine_layout(layout)
+        layout = affine_layout_matrix(layout)
 
     # Remove scale and translation
     R0 = mat[:dim, :dim]
@@ -725,3 +746,100 @@ def mean_affine(mats, shapes):
 
     return mat
 
+
+def voxel_size(mat):
+    """Return the voxel size associated with an affine matrix."""
+    return np.sqrt((mat[:-1,:-1] ** 2).sum(axis=0))
+
+
+def mean_space(mats, shapes, vs=None, layout='RAS', fov='bb', crop=0):
+    """Compute a mean space from a set of spaces (= affine + shape).
+
+    Parameters
+    ----------
+    mats : (N, D+1, D+1) array_like
+        Input affine matrices
+    shapes : (N, D) array_like
+        Input shapes
+    vs : (D,) array_like, optional
+        Ouptut voxel size.
+        Uses the mean voxel size of all input matrices by default.
+    layout : str or (D+1, D+1) array_like, default=None
+        Output layout.
+        Uses the majority layout of all input matrices by default
+    fov : {'bb'}, default='bb'
+        Method for determining the output field-of-view:
+            * 'bb': Bounding box of all input field-of-views, minus
+              some optional cropping.
+    crop : [0..1], default=0
+        Amount of cropping applied to the field-of-view.
+
+    Returns
+    -------
+
+    """
+
+    # Authors
+    # -------
+    # .. John Ashburner <j.ashburner@ucl.ac.uk> : original Matlab code
+    # .. Mikael Brudfors <brudfors@gmail.com> : Python port
+    # .. Yael Balbastre <yael.balbastre@gmail.com> : Python port
+    #
+    # License
+    # -------
+    # The original Matlab code is (C) 2019-2020 WCHN / John Ashburner
+    # and was distributed as part of [SPM](https://www.fil.ion.ucl.ac.uk/spm)
+    # under the GNU General Public Licence (version >= 2).
+
+    shapes = np.asarray(shapes)
+    mats = np.asarray(mats)
+    dim = mats.shape[0] - 1
+
+    # Compute mean affine
+    mat = mean_affine(mats, shapes)
+
+    # Majority layout
+    if layout is None:
+        layout = majority([affine_layout(mat) for mat in mats])
+        print('Output layout: {}'.format(layout))
+
+    # Switch layout
+    if not isinstance(layout, str) or layout != 'RAS':
+        if isinstance(layout, str):
+            layout = affine_layout_matrix(layout)
+        mat = mm(mat, layout)
+
+    # Voxel size
+    if vs is not None:
+        vs0 = np.asarray(vs)
+        vs = voxel_size(mat)
+        vs0[~np.isfinite(vs0)] = vs[~np.isfinite(vs0)]
+        mat = mat * np.diag(np.concatenate((vs0/vs, [1.])))
+    vs = voxel_size(mat)
+
+    # Field of view
+    if fov == 'bb':
+        mn = np.full(dim, np.inf)
+        mx = np.full(dim, -np.inf)
+        for a_mat, a_shape in zip(mats, shapes):
+            corners = itertools.product([False, True], repeat=dim)
+            corners = [[a_shape[i] if top else 1 for i, top in enumerate(c)] + [1]
+                       for c in corners]
+            corners = np.asarray(corners).astype(np.float64).transpose()
+            M = lmdiv(mat, a_mat)
+            corners = mm(M[:dim, :], corners)
+            mx = np.fmax(mx, np.max(corners, axis=1))
+            mn = np.fmax(mn, np.min(corners, axis=1))
+        mx = np.ceil(mx)
+        mn = np.floor(mn)
+        offset = -crop * (mx - mn)
+        shape = (mx - min + 2*offset + 1)
+        M = mn - (offset + 1)
+        M = np.concatenate((np.eye(dim), M[:, None]), axis=1)
+        pad = [[0] * dim + [1]]
+        M = np.concatenant((M, pad), axis=0)
+        mat = mm(mat, M)
+    else:
+        raise NotImplementedError('method {} not implemented'.format(fov))
+
+    return mat.astype(np.float64), shape.astype(np.int)
