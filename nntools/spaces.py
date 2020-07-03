@@ -438,19 +438,21 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
     return prm.astype(in_dtype), M.astype(in_dtype)
 
 
-affine_subbasis_choices = ('T', 'R', 'Z', 'S', 's')
+affine_subbasis_choices = ('T', 'R', 'Z', 'S', 'I')
 
 
 def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
-    """Return a basis for the algebra of some (Lie) groups of matrices.
+    """Generate a basis set for the algebra of some (Lie) group of matrices.
 
     The basis is returned in homogeneous coordinates, even if
     the group required does not require translations. To extract the linear
     part of the basis: lin = basis[:-1, :-1].
 
+    This function focuses on very simple (and coherent) groups.
+
     Parameters
     ----------
-    mode : {'T', 'R', 'Z', 'S', 'D'}
+    mode : {'T', 'R', 'Z', 'I', 'S'}
         Group that should be encoded by the basis set:
             * 'T'   : Translations
             * 'R'   : Rotations
@@ -525,28 +527,34 @@ def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
     return basis
 
 
-affine_basis_choices = ('T', 'D', 'SO', 'SE', 'SC', 'SL', 'Aff')
+affine_basis_choices = ('T', 'D', 'SO', 'SE', 'CSO', 'GL+', 'Aff')
 
 
 def affine_basis(group='SE', dim=3, dtype='float64'):
-    """Generate basis set for the algebra of some (Lie) group of matrices.
+    """Generate a basis set for the algebra of some (Lie) group of matrices.
 
     The basis is returned in homogeneous coordinates, even if
     the group does not require translations. To extract the linear
     part of the basis: lin = basis[:-1, :-1].
 
+    This function focuses on 'classic' Lie groups. Note that, while it
+    is commonly used in registration software, we do not have a
+    "9-parameter affine" (translations + rotations + zooms),
+    because such transforms do not form a group; that is, their inverse
+    may contain shears.
+
     Parameters
     ----------
-    group : {'T', 'SO', 'SE', 'D', 'SC', 'SL', 'Aff'}, default='SE'
+    group : {'T', 'SO', 'SE', 'D', 'CSO', 'GL+', 'Aff+'}, default='SE'
         Group that should be encoded by the basis set:
             * 'T'   : Translations
             * 'SO'  : Special Orthogonal (rotations)
             * 'SE'  : Special Euclidean (translations + rotations)
             * 'D'   : Dilations (translations + isotropic scalings)
-            * 'SC'  : Special Conformal
+            * 'CSO' : Conformal Special Orthogonal
                       (translations + rotations + isotropic scalings)
-            * 'SL'  : Special Linear (rotations + zooms + shears)
-            * 'Aff' : Affine (translations + rotations + zooms + shears)
+            * 'GL+' : General Linear [det>0] (rotations + zooms + shears)
+            * 'Aff+': Affine [det>0] (translations + rotations + zooms + shears)
     dim : {1, 2, 3}, default=3
         Dimension
     dtype : str or type, default='float64'
@@ -582,15 +590,15 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
     elif group == 'D':
         return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
                                affine_subbasis('I', dim, dtype=dtype)))
-    elif group == 'SC':
+    elif group == 'CSO':
         return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
                                affine_subbasis('R', dim, dtype=dtype),
                                affine_subbasis('I', dim, dtype=dtype)))
-    elif group == 'SL':
+    elif group == 'GL+':
         return np.concatenate((affine_subbasis('R', dim, dtype=dtype),
                                affine_subbasis('Z', dim, dtype=dtype),
                                affine_subbasis('S', dim, dtype=dtype)))
-    elif group == 'Aff':
+    elif group == 'Aff+':
         return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
                                affine_subbasis('R', dim, dtype=dtype),
                                affine_subbasis('Z', dim, dtype=dtype),
