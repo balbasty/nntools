@@ -1,9 +1,11 @@
 import re
 import numpy as np
 import itertools
-from .linalg import lmdiv, rmdiv, meanm, dexpm
+from warnings import warn
+from .linalg import lmdiv, rmdiv, mm, meanm, dexpm
 from .utils import sub2ind, majority
-from scipy.linalg import logm
+from scipy.linalg import logm, expm
+from copy import deepcopy
 
 
 def affine_layout(layout, dtype=np.float64):
@@ -24,14 +26,15 @@ def affine_layout(layout, dtype=np.float64):
               'P' for *anterior to Posterior*
             * 'S' for *inferior to Superior* or
               'I' for *superior to Inferior*
-        The most common layout is 'RAS', which maps to the "world"
+        The most common layout is 'RAS', which maps to the 'world'
         orientation 'RAS+' with an identity matrix.
         If the first voxel dimension browsed the brain from right to
         left, the layout would be 'LAS'.
         Note that this layout is only approximate; in practice, angled
-        field-of-views would fall between these layouts.
+        field-of-views would fall sort of in-between these layouts.
 
         The number of letters defines the dimension of the matrix
+        ('R' -> 1D, 'RA' -> 2D, 'RAS' : 3D).
 
     dtype : str or type
         Data type of the matrix
@@ -72,13 +75,13 @@ def affine_layout(layout, dtype=np.float64):
     mat = np.ones(dim+1, dtype=dtype)
     mat[flip + [False]] *= -1
     mat = np.diag(mat)
-    mat = mat[:, perm]
+    mat = mat[:, perm + [3]]
 
     return mat
 
 
 def affine_find_layout(mat):
-    """Find voxel layout associated with an affine matrix.
+    """Find the voxel layout associated with an affine matrix.
 
     Parameters
     ----------
@@ -94,7 +97,8 @@ def affine_find_layout(mat):
 
     # Author
     # ------
-    # .. Yael Balbastre <yael.balbastre@gmail.com>
+    # .. John Ashburner <j.ashburner@ucl.ac.uk> : original idea
+    # .. Yael Balbastre <yael.balbastre@gmail.com> : Python code
 
     # Extract linear component + remove voxel scaling
     mat = np.asarray(mat).astype(np.float64)
@@ -137,25 +141,95 @@ def affine_find_layout(mat):
     return min_layout
 
 
-def affine_parameters(mat, basis=None, layout='RAS'):
-    """Compute the parameters of an affine matrix in a basis of the algebra.
+def _format_basis(basis, dim=None):
+    """Transform an Outter/Inner Lie basis into a list of arrays."""
+
+    basis0 = basis
+    basis = deepcopy(basis0)
+
+    # Guess dimension
+    if dim is None:
+        if isinstance(basis, np.ndarray):
+            dim = basis.shape[-1] - 1
+        else:
+            for outer_basis in basis:
+                if isinstance(outer_basis, np.ndarray):
+                    dim = outer_basis.shape[0] - 1
+                    break
+                elif not isinstance(outer_basis, str):
+                    for inner_basis in outer_basis:
+                        if not isinstance(inner_basis, str):
+                            inner_basis = np.asarray(inner_basis)
+                            dim = inner_basis.shape[0] - 1
+                            break
+    if dim is None:
+        # Guess failed
+        dim = 3
+
+    # Helper to convert named bases to matrices
+    def name_to_basis(name):
+        if outer_basis in affine_basis_choices:
+            return affine_basis(name, dim)
+        elif outer_basis in affine_subbasis_choices:
+            return affine_subbasis(name, dim)
+        else:
+            raise ValueError('Unknown basis name {}.'
+                             .format(name))
+
+    # Convert 'named' bases to matrix bases
+    if not isinstance(basis, np.ndarray):
+        basis = list(basis)
+        for n_outer, outer_basis in enumerate(basis):
+            if isinstance(outer_basis, str):
+                basis[n_outer] = name_to_basis(outer_basis)
+            elif not isinstance(outer_basis, np.ndarray):
+                outer_basis = list(outer_basis)
+                for n_inner, inner_basis in enumerate(outer_basis):
+                    if isinstance(inner_basis, str):
+                        outer_basis[n_inner] = name_to_basis(inner_basis)
+                    else:
+                        outer_basis[n_inner] = np.asarray(inner_basis)
+                outer_basis = np.concatenate(outer_basis)
+                basis[n_outer] = outer_basis
+
+    return basis, dim
+
+
+def affine_matrix(prm, basis, dim=None, layout='RAS', prod=True):
+    r"""Reconstruct an affine matrix from its Lie parameters.
+
+    Affine matrices are encoded as product of sub-matrices, where
+    each sub-matrix is encoded in a Lie algebra. Finally, the right
+    most matrix is a 'layout' matrix (see affine_layout).
+    ..math: M   = exp(A_1) \times ... \times exp(A_n) \times L
+    ..math: A_i = \sum_k = p_{ik} B_{ik}
+
+    An SPM-like construction (as in ``spm_matrix``) would be:
+    >>> M = affine_matrix(prm, ['T', 'R[0]', 'R[1]', 'R[2]', 'Z', 'S'])
+    Rotations need to be split by axis because they do not commute.
 
     Parameters
     ----------
-    mat : (D+1, D+1) array_like
-        Affine matrix
-    basis : (F, D+1, D+1) array_like, default=affine basis
-        Basis of the Lie algebra.
-        It must be orthonormal with respect to the matrix dot product
-        trace(A.t() @ B)
-    layout : str or (D+1, D+1) array_like, default='RAS'
-        "Point" at which to take the matrix exponential.
-        If a string, builds the corresponding matrix using ``affine_layout``
+    prm : vector_like or vector_like[vector_like]
+        Parameters in the Lie algebra(s).
+
+    basis : vector_like[basis_like]
+        The outer level corresponds to matrices in the product (*i.e.*,
+        exponentiated matrices), while the inner level corresponds to
+        Lie algebras.
+
+    dim : int, default=guess or 3
+        If not provided, the function tries to guess it from the shape
+        of the basis matrices. If the dimension cannot be guessed
+        (because all bases are named bases), the default is 3.
+
+    layout : str or matrix_like, default='RAS'
+        A layout matrix.
 
     Returns
     -------
-    prm : (F,) np.ndarray
-        Parameters
+    mat : (D+1, D+1) np.ndarray
+        Reconstructed affine matrix
 
     """
 
@@ -163,29 +237,211 @@ def affine_parameters(mat, basis=None, layout='RAS'):
     # ------
     # .. Yael Balbastre <yael.balbastre@gmail.com>
 
+    # Make sure basis is a vector_like of (F, D+1, D+1) ndarray
+    basis, dim = _format_basis(basis, dim)
+
+    # Check length
+    nb_basis = np.sum([len(b) for b in basis])
+    prm = np.asarray(prm).flatten()
+    in_dtype = prm.dtype
+    if len(prm) != nb_basis:
+        raise ValueError('Number of parameters and number of bases '
+                         'do not match. Got {} and {}'
+                         .format(len(prm), nb_basis))
+
+    # Helper to reconstruct a log-matrix
+    def recon(p, B):
+        p = np.asarray(p, dtype=np.float64)
+        B = np.asarray(B, dtype=np.float64)
+        return expm((B*p[:, None, None]).sum(axis=0))
+
+    # Reconstruct each sub matrix
+    n_prm = 0
+    mats = []
+    for a_basis in basis:
+        nb_prm = a_basis.shape[0]
+        a_prm = prm[n_prm:(n_prm+nb_prm)]
+        mats.append(recon(a_prm, a_basis))
+        n_prm += nb_prm
+
+    # Add layout matrix
+    if layout != 'RAS':
+        if isinstance(layout, str):
+            layout = affine_layout(layout)
+        mats.append(layout)
+
+    # Matrix product
+    if prod:
+        return mm(np.stack(mats)).astype(in_dtype)
+    else:
+        return mats
+
+
+def _affine_parameters_single_basis(mat, basis, layout='RAS'):
+
+    # Project to tangent space
+    if not isinstance(layout, str) or layout != 'RAS':
+        if isinstance(layout, str):
+            layout = affine_layout(layout)
+        mat = rmdiv(mat, layout)
+    mat = logm(mat)
+
+    # Project to orthonormal basis in the tangent space
+    prm = np.zeros(basis.shape[0], dtype=np.float64)
+    for n_basis in range(basis.shape[0]):
+        prm[n_basis] = np.trace(np.matmul(mat, basis[n_basis, ...].transpose()))
+
+    return prm
+
+
+def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
+                      max_line_search=6):
+    """Compute the parameters of an affine matrix in a basis of the algebra.
+
+    This function finds the matrix closest to ``mat`` (in the least squares
+    sense) that can be encoded in the specified basis.
+
+    Parameters
+    ----------
+    mat : (D+1, D+1) array_like
+        Affine matrix
+
+    basis : vector_like[basis_like]
+        Basis of the Lie algebra(s).
+
+    layout : str or (D+1, D+1) array_like, default='RAS'
+        "Point" at which to take the matrix exponential
+        (see affine_layout)
+
+    max_iter : int, default=10000
+        Maximum number of Gauss-Newton iterations in the least-squares fit.
+
+    tol : float, default = 1e-8
+        Tolerance criterion for convergence.
+        It is based on the squared norm of the GN step divided by the
+        squared norm of the input matrix.
+
+    max_line_search: int, default=6
+        Maximum number of line search steps.
+        If zero: no line-search is performed.
+
+    Returns
+    -------
+    prm : ndarray
+        Parameters in the specified basis
+
+    """
+
+    # Authors
+    # -------
+    # .. John Ashburner <j.ashburner@ucl.ac.uk> : original GN fit in Matlab
+    # .. Yael Balbastre <yael.balbastre@gmail.com> : Python code
+
+    # Format mat
     mat = np.asarray(mat)
     in_dtype = mat.dtype
     dim = mat.shape[-1] - 1
     mat = mat.astype(np.float64)
-    if basis is None:
-        basis = affine_basis('Aff', dim)
-    nb_basis = basis.shape[0]
 
-    # Project to tangent space
-    if layout == 'RAS':
-        mat = logm(mat)
-    else:
-        if isinstance(layout, str):
-            layout = affine_layout(layout)
-        mat = rmdiv(mat, layout)
-        mat = logm(mat)
+    # Format basis
+    basis, _ = _format_basis(basis, dim)
+    nb_basis = np.sum([len(b) for b in basis])
 
-    # Project to orthonormal basis in the tangent space
-    prm = np.zeros(nb_basis, dtype=in_dtype)
-    for n_basis in range(nb_basis):
-        prm[n_basis] = np.trace(np.matmul(mat, basis[n_basis, ...].transpose()))
+    # Create layout matrix
+    if isinstance(layout, str):
+        layout = affine_layout(layout)
 
-    return prm
+    def gauss_newton():
+        # Predefine these values in case max_iter == 0
+        n_iter = -1
+        # Gauss-Newton optimisation
+        prm = np.zeros(nb_basis, dtype=np.float64)
+        M = affine_matrix(prm, basis)
+        sos = ((M - mat) ** 2).sum()
+        norm = (mat ** 2).sum()
+        crit = np.inf
+        for n_iter in range(max_iter):
+
+            # Compute derivative of each submatrix with respect to its basis
+            Ms = []
+            dMs = []
+            n_basis = 0
+            for a_basis in basis:
+                nb_a_basis = a_basis.shape[0]
+                a_prm = prm[n_basis:(n_basis+nb_a_basis)]
+                M, dM = dexpm(a_prm, a_basis)
+                Ms.append(M)
+                dMs.append(dM)
+                n_basis += nb_a_basis
+            M = np.stack(Ms)
+
+            # Compute derivative of the full matrix with respect to each basis
+            for n_mat, dM in enumerate(dMs):
+                if n_mat > 0:
+                    pre = mm(M[:n_mat, ...], axis=0)
+                    dM = mm(pre, dM)
+                if n_mat < M.shape[0]-1:
+                    post = mm(M[(n_mat+1):, ...], axis=0)
+                    dM = mm(dM, post)
+                dMs[n_mat] = dM
+            dM = np.concatenate(dMs)
+            M = mm(M, axis=0)
+
+            # Multiply with layout
+            M = mm(M, layout)
+            dM = mm(dM, layout)
+
+            # Compute gradient/Hessian of the loss (squared residuals)
+            diff = M - mat
+            diff = diff.flatten()
+            dM = dM.reshape((nb_basis, -1))
+            gradient = mm(dM, diff)
+            hessian = mm(dM, dM.transpose())
+            delta_prm = lmdiv(hessian, gradient)
+            # prm -= delta_prm
+
+            crit = (delta_prm ** 2).sum() / norm
+            if crit < tol:
+                break
+
+            if max_line_search == 0:
+                # We trust the Gauss-Newton step
+                prm -= delta_prm
+            else:
+                # Line Search
+                sos0 = sos
+                prm0 = prm
+                M0 = M
+                armijo = 1
+                success = False
+                for _ in range(max_line_search):
+                    prm = prm0 - armijo * delta_prm
+                    M = affine_matrix(prm, basis)
+                    sos = ((M - mat) ** 2).sum()
+                    if sos < sos0:
+                        success = True
+                        break
+                    else:
+                        armijo /= 2
+                if not success:
+                    prm = prm0
+                    M = M0
+                    break
+
+        if crit >= tol:
+            warn('Gauss-Newton optimisation did not converge: '
+                 'n_iter = {}, sos = {}.'.format(n_iter + 1, crit),
+                 RuntimeWarning)
+
+        return prm, M
+
+    prm, M = gauss_newton()
+
+    # TODO: should I stack parameters per basis?
+    return prm.astype(in_dtype), M.astype(in_dtype)
+
+
+affine_subbasis_choices = ('T', 'R', 'Z', 'S', 'ISO')
 
 
 def affine_subbasis(mode, dim=3, dtype='float64'):
@@ -223,8 +479,9 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
 
     if dim not in (1, 2, 3):
         raise ValueError('dim must be one of 1, 2, 3')
-    if mode not in ('T', 'R', 'Z', 'S', 'ISO'):
-        raise ValueError('mode {} not implemented'.format(mode))
+    if mode not in affine_subbasis_choices:
+        raise ValueError('mode must be one of {}.'
+                         .format(affine_subbasis_choices))
 
     if mode == 'T':
         basis = np.zeros((dim, dim+1, dim+1), dtype=dtype)
@@ -255,6 +512,9 @@ def affine_subbasis(mode, dim=3, dtype='float64'):
                 basis[k, j, i] = 1/np.sqrt(2)
                 k += 1
     return basis
+
+
+affine_basis_choices =  ('T', 'SO', 'SE', 'SL', 'Aff')
 
 
 def affine_basis(group='SE', dim=3, dtype='float64'):
@@ -294,8 +554,9 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
 
     if dim not in (1, 2, 3):
         raise ValueError('dim must be one of 1, 2, 3')
-    if group not in ('T', 'SO', 'SE', 'SL', 'Aff'):
-        raise ValueError('group must be one of T, SO, SE, SL, Aff')
+    if group not in affine_basis_choices:
+        raise ValueError('group must be one of {}.'
+                         .format(affine_basis_choices))
 
     if group == 'T':
         return affine_subbasis('T', dim, dtype=dtype)
@@ -428,16 +689,11 @@ def mean_affine(mats, shapes):
     # and was distributed as part of [SPM](https://www.fil.ion.ucl.ac.uk/spm)
     # under the GNU General Public Licence (version >= 2).
 
-    if not isinstance(mats, np.ndarray):
-        mats = list(mats)
-        mats = np.stack(mats)
-    mats = mats.copy()
+    # Convert to (N,, D+1, D+1) ndarray + copy
+    # We copy because we're going to write inplace.
+    shapes = np.asarray(shapes)
+    mats = np.array(mats, copy=True)
     dim = mats.shape[-1] - 1
-
-    if shapes is not None:
-        if not isinstance(shapes, np.ndarray):
-            shapes = list(shapes)
-            shapes = np.stack(shapes)
 
     # STEP 1: Reorient to RAS layout
     # ------
@@ -447,7 +703,7 @@ def mean_affine(mats, shapes):
     # mean will fail. The first step is therefore to reorient all
     # matrices so that they map to a common voxel layout.
     # We choose RAS as the common layout, as it makes further steps
-    # easier ans matches the world space orientation.
+    # easier and matches the world space orientation.
     RAS = np.eye(dim+1, dtype=np.float64)
     for mat, shape in zip(mats, shapes):
         mat[:, :], shape[:] = change_layout(mat, shape, RAS)
@@ -461,30 +717,11 @@ def mean_affine(mats, shapes):
     # We want the matrix to be "rigid" = the combination of a
     # rotation+translation (T*R) in world space and of a "voxel size"
     # scaling (Z), i.e., M = T*R*Z.
-    # We look for the matrix that can be encoded without shear bases
+    # We look for the matrix that can be encoded without shears
     # that is the closest to the original matrix (in terms of the
     # Frobenius norm of the residual matrix)
-    basis_shears = affine_subbasis('S', dim)
-    prm_shears = affine_parameters(mat, basis_shears)
-    if (prm_shears ** 2).sum() > 1e-8:
-        basis_rotation = affine_subbasis('R', dim)
-        basis_zoom = affine_subbasis('Z', dim)
-        nb_prm_rotation = basis_rotation.shape[0]
-        basis = np.concatenate((basis_rotation, basis_zoom), axis=0)
-        prm = affine_parameters(mat, basis)
-        for n_iter in range(10000):
-            R, dR = dexpm(prm[:nb_prm_rotation], basis_rotation)
-            Z, dZ = dexpm(prm[nb_prm_rotation:], basis_zoom)
-            M = R*Z
-            dM = np.concatenate((np.matmul(dR, Z), np.matmul(R, dZ)))
-            diff = M - mat
-            gradient = np.tensordot(dM, diff.transpose, axis=2)
-            hessian = np.tensordot(dM, dM.transpose, axis=2)
-            prm = prm - lmdiv(hessian, gradient)
-            if (gradient ** 2).sum() < 1e-8:
-                print('Early stopping at iteration {}'.format(n_iter))
-                break
-        mat[:dim, :dim] = M[:dim, :dim]
+    _, M = affine_parameters(mat, ['R', 'Z'])
+    mat[:dim, :dim] = M[:dim, :dim]
 
     return mat
 

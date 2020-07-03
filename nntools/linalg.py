@@ -1,3 +1,4 @@
+from warnings import warn
 import numpy as np
 from scipy.linalg import logm, expm
 
@@ -43,6 +44,49 @@ def rmdiv(A, B, rcond=None):
     if len(B.shape) == 1:
         B = B[..., None]
     return np.linalg.lstsq(B.transpose(), A.transpose(), rcond=rcond)[0].transpose()
+
+
+def matmul(x1, x2=None, axis=None, **kwargs):
+    """Matrix multiplication (with extended capabilities)
+
+    Parameters
+    ----------
+    x1 : array_like
+        First matrix
+    x2 : array_like, optional
+        Second matrix
+    axis : int, optional
+        Axis along which to extract matrices. Default axis is 0
+    **kwargs
+        Other keyword only arguments. See numpy.matmul
+
+    Returns
+    -------
+    x : ndarray
+        * If x2 is None: extract matrices from x1 along an axis and
+          multiply them together.
+        * Else: classic matrix multiplication x1 @ x2. See numpy.matmul
+
+    """
+    if x2 is None:
+        # Product across a dimension of x1
+        x1 = np.asarray(x1)
+        if axis is None:
+            axis = 0
+        x = np.take(x1, 0, axis=axis)
+        for n_mat in range(1, x1.shape[axis]):
+            x = np.matmul(x, np.take(x1, n_mat, axis=axis))
+        return x
+    else:
+        # Product of two matricws
+        if axis is not None:
+            raise ValueError('Cannot use ``b`` and ``axis`` together.')
+        return np.matmul(x1, x2, **kwargs)
+
+
+def mm(*args, **kwargs):
+    """Alias for matmul"""
+    return matmul(*args, **kwargs)
 
 
 def meanm(mats, max_iter=1024, tol=1e-20):
@@ -149,35 +193,34 @@ def dexpm(X, basis, max_order=10000, tol=1e-32):
 
     X = np.asarray(X)
     in_dtype = X.dtype
+    X = X.astype(np.float64)
     if basis is None:
         return None
-    if not isinstance(basis, np.ndarray):
-        basis = list(basis)
-        basis = np.stack(basis, axis=2)
+    basis = np.asarray(basis, dtype=np.float64)
     nb_basis = basis.shape[0]
 
     if len(X.shape) == 1:
         # Assume that input contains parameters in the algebra
         # -> reconstruct matrix
-        X = (basis * X[:, None, None]).sum(axis=2)
-
-    X = X.astype(np.float64)
-    basis = basis.astype(np.float64)
+        X = (basis * X[:, None, None]).sum(axis=0)
 
     # Aliases
-    E = X.copy()             # expm(X)
-    dE = basis.copy()        # dexpm(X)
-    En = X.copy()            # n-th Taylor coefficient of expm
-    dEn = basis.copy()       # n-th Taylor coefficient of dexpm
+    I = np.eye(X.shape[0], dtype=np.float64)
+    E = I + X                           # expm(X)
+    dE = basis.copy()                   # dexpm(X)
+    En = X.copy()                       # n-th Taylor coefficient of expm
+    dEn = basis.copy()                  # n-th Taylor coefficient of dexpm
     for n_order in range(2, max_order+1):
         for n_basis in range(nb_basis):
             dEn[n_basis, ...] = (np.matmul(dEn[n_basis, ...], X) +
                                  np.matmul(En, basis[n_basis, ...]))/n_order
-            dE += dEn
+        dE += dEn
         En = np.matmul(En, X)/n_order
         E += En
-        if (En ** 2).sum() < En.size()*tol:
+        if (En ** 2).sum() < En.size * tol:
             break
+    if (En ** 2).sum() >= En.size * tol:
+        warn('expm did not converge.', RuntimeWarning)
 
     E = E.astype(in_dtype)
     dE = dE.astype(in_dtype)
