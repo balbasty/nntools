@@ -1,0 +1,12 @@
+name: nntools-dev
+channels:
+  - conda-forge
+dependencies:
+  - python=3.7
+  - numpy
+  - scipy
+  - nibabel
+  - pip
+  - sphinx
+  - sphinx_rtd_theme
+  - recommonmark
