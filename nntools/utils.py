@@ -2,6 +2,7 @@ import os.path
 from glob import glob
 from collections import Counter
 import numpy as np
+import re
 
 # This bit gives some flexibility for the input files:
 # . unix-style ~ (HOME) is always expanded

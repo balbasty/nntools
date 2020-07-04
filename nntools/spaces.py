@@ -6,6 +6,7 @@ from .linalg import lmdiv, rmdiv, mm, meanm, dexpm
 from .utils import sub2ind, majority
 from scipy.linalg import logm, expm
 from copy import deepcopy
+from ast import literal_eval
 
 
 def affine_layout_matrix(layout, dtype=np.float64):
@@ -41,7 +42,7 @@ def affine_layout_matrix(layout, dtype=np.float64):
 
     Returns
     -------
-    mat : (D+1, D+1) np.ndarray
+    mat : (dim+1, dim+1) ndarray
         Corresponding affine matrix.
     """
 
@@ -85,13 +86,13 @@ def affine_layout(mat):
 
     Parameters
     ----------
-    mat : (D+1, D+1) array_like
+    mat : (dim+1, dim+1) array_like
         Affine matrix
 
     Returns
     -------
     layout : str
-        Voxel layout (see ``affine_layout``)
+        Voxel layout (see affine_layout)
 
     """
 
@@ -106,14 +107,14 @@ def affine_layout(mat):
     mat = mat[:dim, :dim]
     vs = (mat ** 2).sum(1)
     mat = rmdiv(mat, np.diag(vs))
-    I = np.eye(dim, dtype=np.float64)
+    eye = np.eye(dim, dtype=np.float64)
 
     min_sos = np.inf
     min_layout = None
 
     def check_space(space):
         layout = affine_layout_matrix(space)[:dim, :dim]
-        sos = ((rmdiv(mat, layout) - I) ** 2).sum()
+        sos = ((rmdiv(mat, layout) - eye) ** 2).sum()
         if sos < min_sos:
             return space
         else:
@@ -228,7 +229,7 @@ def affine_matrix(prm, basis, dim=None, layout='RAS'):
 
     Returns
     -------
-    mat : (D+1, D+1) np.ndarray
+    mat : (dim+1, dim+1) np.ndarray
         Reconstructed affine matrix
 
     """
@@ -300,7 +301,7 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
 
     Parameters
     ----------
-    mat : (D+1, D+1) array_like
+    mat : (dim+1, dim+1) array_like
         Affine matrix
 
     basis : vector_like[basis_like]
@@ -360,6 +361,8 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
         for n_iter in range(max_iter):
 
             # Compute derivative of each submatrix with respect to its basis
+            # * Mi
+            # * dM/dBi
             Ms = []
             dMs = []
             n_basis = 0
@@ -373,6 +376,8 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
             M = np.stack(Ms)
 
             # Compute derivative of the full matrix with respect to each basis
+            # * M = mprod(M[:, ...])
+            # * dM/dBi = mprod(M[:i, ...]) @ dMi/dBi @ mprod(M[i+1:, ...])
             for n_mat, dM in enumerate(dMs):
                 if n_mat > 0:
                     pre = mm(M[:n_mat, ...], axis=0)
@@ -395,7 +400,6 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
             gradient = mm(dM, diff)
             hessian = mm(dM, dM.transpose())
             delta_prm = lmdiv(hessian, gradient)
-            # prm -= delta_prm
 
             crit = (delta_prm ** 2).sum() / norm
             if crit < tol:
@@ -438,10 +442,13 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
     return prm.astype(in_dtype), M.astype(in_dtype)
 
 
-affine_subbasis_choices = ('T', 'R', 'Z', 'S', 'I')
+affine_subbasis_choices = ('T', 'R', 'Z', 'Z0', 'I', 'S')
 
 
-def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
+_affine_subbasis_hash = dict()
+
+
+def affine_subbasis(mode, dim=3, sub=None, dtype='float64', _store=False):
     """Generate a basis set for the algebra of some (Lie) group of matrices.
 
     The basis is returned in homogeneous coordinates, even if
@@ -452,13 +459,18 @@ def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
 
     Parameters
     ----------
-    mode : {'T', 'R', 'Z', 'I', 'S'}
+    mode : {'T', 'R', 'Z', 'Z0', 'I', 'S'}
         Group that should be encoded by the basis set:
-            * 'T'   : Translations
-            * 'R'   : Rotations
-            * 'Z'   : Zooms (= anisotropic scalings)
-            * 'I'   : Isotropic scalings
-            * 'S'   : Shears
+            * 'T'   : Translations                     [dim]
+            * 'R'   : Rotations                        [dim*(dim-1)//2]
+            * 'Z'   : Zooms (= anisotropic scalings)   [dim]
+            * 'Z0'  : Isovolumic scalings              [dim-1]
+            * 'I'   : Isotropic scalings               [1]
+            * 'S'   : Shears                           [dim*(dim-1)//2]
+        If the group name is appended with a list of integers, they
+        have the same use as ``sub``. For example 'R[0]' returns the
+        first rotation basis only. This grammar cannot be used in
+        conjunction with the ``sub`` keyword.
 
     dim : {1, 2, 3}, default=3
         Dimension
@@ -471,7 +483,7 @@ def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
 
     Returns
     -------
-    basis : np.ndarray of shape (F, dim+1, dim+1)
+    basis : (F, dim+1, dim+1) ndarray
         Basis set, where ``F`` is the number of basis functions.
 
     """
@@ -481,40 +493,68 @@ def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
     # .. John Ashburner <j.ashburner@ucl.ac.uk> : original Matlab code
     # .. Yael Balbastre <yael.balbastre@gmail.com> : Python code
 
+    # Check if sub passed in mode
+    mode = mode.split('[')
+    if len(mode) > 1:
+        if sub is not None:
+            raise ValueError('Cannot use both ``mode`` and ``sub`` '
+                             'to specify a sub-basis.')
+        sub = '[' + mode[1]
+        sub = literal_eval(sub)  # Safe eval for list of native types
+    mode = mode[0]
+
     if dim not in (1, 2, 3):
         raise ValueError('dim must be one of 1, 2, 3')
     if mode not in affine_subbasis_choices:
         raise ValueError('mode must be one of {}.'
                          .format(affine_subbasis_choices))
 
-    if mode == 'T':
-        basis = np.zeros((dim, dim+1, dim+1), dtype=dtype)
-        for i in range(dim):
-            basis[i, i, -1] = 1
-    elif mode == 'Z':
-        basis = np.zeros((dim, dim+1, dim+1), dtype=dtype)
-        for i in range(dim):
-            basis[i, i, i] = 1
-    elif mode == 'I':
-        basis = np.zeros((1, dim+1, dim+1), dtype=dtype)
-        for i in range(dim):
-            basis[0, i, i] = 1
-    elif mode == 'R':
-        basis = np.zeros((dim*(dim-1)//2, dim+1, dim+1), dtype=dtype)
-        k = 0
-        for i in range(dim):
-            for j in range(i+1, dim):
-                basis[k, i, j] = 1/np.sqrt(2)
-                basis[k, j, i] = -1/np.sqrt(2)
-                k += 1
-    elif mode == 'S':
-        basis = np.zeros((dim*(dim-1)//2, dim+1, dim+1), dtype=dtype)
-        k = 0
-        for i in range(dim):
-            for j in range(i+1, dim):
-                basis[k, i, j] = 1/np.sqrt(2)
-                basis[k, j, i] = 1/np.sqrt(2)
-                k += 1
+    # Check if basis exists in the dictionary
+    basis = _affine_subbasis_hash.get((mode, dim))
+    if basis is None:
+        # Compute the basis
+
+        if mode == 'T':
+            basis = np.zeros((dim, dim+1, dim+1), dtype=np.float64)
+            for i in range(dim):
+                basis[i, i, -1] = 1
+        elif mode == 'Z':
+            basis = np.zeros((dim, dim+1, dim+1), dtype=np.float64)
+            for i in range(dim):
+                basis[i, i, i] = 1
+        elif mode == 'Z0':
+            basis = np.zeros((dim-1, dim+1), dtype=np.float64)
+            for i in range(dim-1):
+                basis[i, i] = 1
+                basis[i, i+1] = -1
+            # Orthogonalise numerically (is there an analytical form?)
+            u, s, v = np.linalg.svd(basis)
+            basis = lmdiv(np.diag(s), mm(mm(u.transpose(), basis), v))
+            basis = np.stack(tuple(np.diag(a_basis) for a_basis in basis))
+        elif mode == 'I':
+            basis = np.zeros((1, dim+1, dim+1), dtype=np.float64)
+            for i in range(dim):
+                basis[0, i, i] = 1
+        elif mode == 'R':
+            basis = np.zeros((dim*(dim-1)//2, dim+1, dim+1), dtype=np.float64)
+            k = 0
+            for i in range(dim):
+                for j in range(i+1, dim):
+                    basis[k, i, j] = 1/np.sqrt(2)
+                    basis[k, j, i] = -1/np.sqrt(2)
+                    k += 1
+        elif mode == 'S':
+            basis = np.zeros((dim*(dim-1)//2, dim+1, dim+1), dtype=np.float64)
+            k = 0
+            for i in range(dim):
+                for j in range(i+1, dim):
+                    basis[k, i, j] = 1/np.sqrt(2)
+                    basis[k, j, i] = 1/np.sqrt(2)
+                    k += 1
+
+        if _store:
+            # Save in hash table
+            _affine_subbasis_hash[(mode, dim)] = basis
 
     # Select subcomponents of the basis
     if sub is not None:
@@ -524,10 +564,20 @@ def affine_subbasis(mode, dim=3, sub=None, dtype='float64'):
             sub = [sub]
         basis = np.stack((basis[i, ...] for i in sub))
 
-    return basis
+    return basis.astype(dtype)
 
 
-affine_basis_choices = ('T', 'D', 'SO', 'SE', 'CSO', 'GL+', 'Aff')
+def _init_affine_subbasis_hash(dims=(2, 3)):
+    """Precompute and store bases."""
+    for dim in dims:
+        for mode in affine_subbasis_choices:
+            affine_subbasis(mode, dim, _store=True)
+
+
+_init_affine_subbasis_hash()
+
+
+affine_basis_choices = ('T', 'SO', 'SE', 'D', 'CSO', 'SL', 'GL+', 'Aff+')
 
 
 def affine_basis(group='SE', dim=3, dtype='float64'):
@@ -545,7 +595,7 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
 
     Parameters
     ----------
-    group : {'T', 'SO', 'SE', 'D', 'CSO', 'GL+', 'Aff+'}, default='SE'
+    group : {'T', 'SO', 'SE', 'D', 'CSO', 'SL', 'GL+', 'Aff+'}, default='SE'
         Group that should be encoded by the basis set:
             * 'T'   : Translations
             * 'SO'  : Special Orthogonal (rotations)
@@ -553,6 +603,7 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
             * 'D'   : Dilations (translations + isotropic scalings)
             * 'CSO' : Conformal Special Orthogonal
                       (translations + rotations + isotropic scalings)
+            * 'SL'  : Special Linear (rotations + isovolumic zooms + shears)
             * 'GL+' : General Linear [det>0] (rotations + zooms + shears)
             * 'Aff+': Affine [det>0] (translations + rotations + zooms + shears)
     dim : {1, 2, 3}, default=3
@@ -594,6 +645,10 @@ def affine_basis(group='SE', dim=3, dtype='float64'):
         return np.concatenate((affine_subbasis('T', dim, dtype=dtype),
                                affine_subbasis('R', dim, dtype=dtype),
                                affine_subbasis('I', dim, dtype=dtype)))
+    elif group == 'SL':
+        return np.concatenate((affine_subbasis('R', dim, dtype=dtype),
+                               affine_subbasis('Z0', dim, dtype=dtype),
+                               affine_subbasis('S', dim, dtype=dtype)))
     elif group == 'GL+':
         return np.concatenate((affine_subbasis('R', dim, dtype=dtype),
                                affine_subbasis('Z', dim, dtype=dtype),
@@ -610,18 +665,18 @@ def change_layout(mat, shape, layout='RAS'):
 
     Parameters
     ----------
-    mat : (D+1+, D+1) array_like
+    mat : (dim+1+, dim+1) array_like
         Orientation matrix
-    shape : (D,) array_like or (shape*, features*) array_like
+    shape : (dim,) array_like or (shape*, features*) array_like
         Shape or Volume
     layout : str or (D+1+, D+1) array_like
         Name of a layout or corresponding matrix
 
     Returns
     -------
-    mat : (D+1, D+1) np.ndarray
+    mat : (dim+1, dim+1) np.ndarray
         Reoriented orientation matrix
-    shape : (D,) np.ndarray or (permuted_shape*, features*) np.ndarray
+    shape : (dim,) np.ndarray or (permuted_shape*, features*) np.ndarray
         Reoriented shape or  volume
 
     """
@@ -694,14 +749,14 @@ def mean_affine(mats, shapes):
 
     Parameters
     ----------
-    mats : (N, D+1, D+1) array_like or list[(D+1, D+1) array_like]
+    mats : (N, dim+1, dim+1) array_like or list[(dim+1, dim+1) array_like]
         Input orientation matrices
-    shapes : (N, D) array_like or list[(D,) array like]
+    shapes : (N, dim) array_like or list[(dim,) array like]
         Input shape
 
     Returns
     -------
-    mat : (D+1, D+1) np.ndarray
+    mat : (dim+1, dim+1) np.ndarray
         Mean orientation matrix, with an RAS layout
 
     """
@@ -720,7 +775,7 @@ def mean_affine(mats, shapes):
 
     # Convert to (N,, D+1, D+1) ndarray + copy
     # We copy because we're going to write inplace.
-    shapes = np.asarray(shapes)
+    shapes = np.array(shapes, copy=True)
     mats = np.array(mats, copy=True)
     dim = mats.shape[-1] - 1
 
@@ -765,14 +820,14 @@ def mean_space(mats, shapes, vs=None, layout='RAS', fov='bb', crop=0):
 
     Parameters
     ----------
-    mats : (N, D+1, D+1) array_like
+    mats : (N, dim+1, dim+1) array_like
         Input affine matrices
-    shapes : (N, D) array_like
+    shapes : (N, dim) array_like
         Input shapes
-    vs : (D,) array_like, optional
+    vs : (dim,) array_like, optional
         Ouptut voxel size.
         Uses the mean voxel size of all input matrices by default.
-    layout : str or (D+1, D+1) array_like, default=None
+    layout : str or (dim+1, dim+1) array_like, default=None
         Output layout.
         Uses the majority layout of all input matrices by default
     fov : {'bb'}, default='bb'
@@ -784,6 +839,10 @@ def mean_space(mats, shapes, vs=None, layout='RAS', fov='bb', crop=0):
 
     Returns
     -------
+    mat : (dim+1, dim+1) ndarray
+        Mean affine matrix
+    shape : (dim,) ndarray
+        Corresponding shape
 
     """
 
