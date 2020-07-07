@@ -45,7 +45,7 @@ class Reslicer:
     map_prefix = 'map_'
 
     def __init__(self, output_affine=None, output_shape=None, *,
-                 order=1, bound='mirror', extrapolate=False,
+                 order=1, bound='nearest', extrapolate=False,
                  compute_map=False, ensure_multiple=None,
                  writer=None, map_writer=None):
         """
@@ -63,7 +63,7 @@ class Reslicer:
         order : int, default=1
             Interpolation order
 
-        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
             Boundary conditions when sampling out-of-bounds
 
         extrapolate : bool, default=False
@@ -198,7 +198,7 @@ class Reslicer:
 
         # Mask of out-of-bound voxels
         if not extrapolate:
-            gap = 0  # TODO: What's best?
+            gap = 0.5  # TODO: What 's best?
             msk = (g[..., 0] < -gap) | (g[..., 0] > input_shape[0]-1.0+gap) \
                 | (g[..., 1] < -gap) | (g[..., 1] > input_shape[1]-1.0+gap) \
                 | (g[..., 2] < -gap) | (g[..., 2] > input_shape[2]-1.0+gap)
@@ -330,7 +330,7 @@ class Resizer(Reslicer):
         order : int, default=1
             Interpolation order
 
-        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
             Boundary conditions when sampling out-of-bounds
 
         compute_map : bool, default=False
@@ -427,14 +427,6 @@ class Resizer(Reslicer):
             output_shape = [np.floor(i/s) for i, s in zip(input_shape, factor)]
 
         from ..space.affine import voxel_size
-        print(voxel_size(input_affine), input_shape)
-        print(voxel_size(output_affine), output_shape)
-
-        # # Specify default for extrapolate
-        # if kwargs.get('extrapolate') is None:
-        #     kwargs['extrapolate'] = self.extrapolate
-        # if kwargs.get('extrapolate') is None:
-        #     kwargs['extrapolate'] = True
 
         return super().__call__(x, input_affine=input_affine,
                                 output_affine=output_affine,
@@ -494,7 +486,7 @@ class ShapeResizer(Resizer):
         order : int, default=1
             Interpolation order
 
-        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
             Boundary conditions when sampling out-of-bounds
 
         compute_map : bool, default=False
@@ -595,7 +587,7 @@ class VoxelResizer(Resizer):
         order : int, default=1
             Interpolation order
 
-        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
+        bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
             Boundary conditions when sampling out-of-bounds
 
         compute_map : bool, default=False

@@ -21,7 +21,7 @@ common.add_argument('--bound',
                     help='Boundary condition [default: mirror]')
 common.add_argument('--extrapolate', type=bool, default=None,
                     help='Extrapolate out-of-bound '
-                         '[default: False if `reference` else True]')
+                         '[default: False]')
 common.add_argument('--compute-map', default=False, action='store_true',
                     dest='compute_map',
                     help='Compute reliability maps [default: False]')

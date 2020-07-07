@@ -30,7 +30,7 @@ def reslice(x, output_affine=None, output_shape=None, input_affine=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     extrapolate : bool, default=False
@@ -91,7 +91,7 @@ def reslice_like(x, reference_volume=None, input_affine=None,
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -151,7 +151,7 @@ def resize(x, factor, output_shape=None, **kwargs):
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -210,7 +210,7 @@ def upsample(x, factor=2, output_shape=None, **kwargs):
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -270,7 +270,7 @@ def downsample(x, factor=2, output_shape=None, **kwargs):
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -324,7 +324,7 @@ def resize_shape(x, output_shape=None, **kwargs):
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
@@ -377,7 +377,7 @@ def resize_voxel(x, output_vs=None, **kwargs):
     order : int, default=1
         Interpolation order
 
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='mirror'
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default='nearest'
         Boundary conditions when sampling out-of-bounds
 
     compute_map : bool, default=False
