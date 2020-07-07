@@ -10,6 +10,7 @@ def identity_grid(shape, dtype=None):
     ----------
     shape : iterable of length D
         Shape of the dense grid.
+
     dtype : type, default=mat.dtype
         Output data type.
 
@@ -32,10 +33,12 @@ def affine_grid(mat, shape, dtype=None):
     ----------
     mat : array_like of shape (D, D+1) or (D+1, D+1)
         Affine matrix.
-        - mat[:D, :D] contains the rotation part of the affine transform
-        - mat[D, :D] contains the translation part of the affine transform
+            * mat[:D, :D] contains the rotation part of the affine transform
+            * mat[D, :D] contains the translation part of the affine transform
+
     shape : iterable of length D
         Shape of the dense grid.
+
     dtype : type, default=mat.dtype
         Output data type.
 
@@ -70,13 +73,15 @@ def sample_grid(x, grid, order=1, bound='reflect'):
     ----------
     x : array_like of shape (*input_spatial, *features)
         Input volume
+
     grid : array_like of shape (*output_spatial, dim)
         Grid of coordinates
+
     order : int, default=1
         Order of the B-spline coefficients that encode ``x``.
         Often called 'interpolation order'.
-    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar,
-            default=0
+
+    bound : {'wrap', 'nearest', 'mirror', 'reflect'} or scalar, default=0
         Boundary conditions when sampling out-of-bounds.
 
     Returns

@@ -6,12 +6,30 @@ from ..io import VolumeReader, VolumeWriter, VolumeConverter, isfile
 from ..interpolate import affine_grid, sample_grid, reliability_grid
 from ..utils import argpad, argdef
 from ..linalg import lmdiv, rmdiv
+from ..hints import Matrix, Vector, AnyArray
+from typing import Tuple
 import numpy as np
 from scipy.ndimage.interpolation import spline_filter1d
 from scipy.ndimage import map_coordinates
 
 # TODO:
 # - Possibility to read/write features one at a time to save memory.
+
+
+def _select_writer(x, writer, map_writer, prefix, map_prefix='map_'):
+    """Choose writer based on input type."""
+    if isfile(x):
+        if writer is None:
+            writer = VolumeWriter(prefix=prefix)
+        if map_writer is None:
+            map_writer = VolumeWriter(prefix=map_prefix, dtype=np.float32)
+    else:
+        x = np.asarray(x)
+        if writer is None:
+            writer = VolumeConverter(x.dtype)
+        if map_writer is None:
+            map_writer = VolumeConverter(np.float64)
+    return writer, map_writer
 
 
 class Reslicer:
@@ -23,10 +41,12 @@ class Reslicer:
     It is use as a base class by most high-level reslicers.
     """
 
+    output_prefix = 'resliced_'
+    map_prefix = 'map_'
+
     def __init__(self, output_affine=None, output_shape=None, *,
-                 order=1, bound='mirror', extrapolate=False, compute_map=False,
-                 writer=VolumeWriter(prefix='resliced_'),
-                 map_writer=VolumeWriter(prefix='map_')):
+                 order=1, bound='mirror', extrapolate=False,
+                 compute_map=False, writer=None, map_writer=None):
         """
 
         Parameters
@@ -37,6 +57,8 @@ class Reslicer:
         output_shape : iterable, default=same as input
             Output (3D spatial) shape
 
+        Other Parameters
+        ----------------
         order : int, default=1
             Interpolation order
 
@@ -68,7 +90,8 @@ class Reslicer:
 
     def __call__(self, x,
                  output_affine=None, output_shape=None, input_affine=None, *,
-                 order=None, bound=None, extrapolate=None, compute_map=None):
+                 order=None, bound=None, extrapolate=None, compute_map=None,
+                 writer=None, map_writer=None):
         """Reslice a volume to a target shape and orientation (affine matrix).
 
         Parameters
@@ -85,6 +108,8 @@ class Reslicer:
         input_affine : matrix_like, default=guessed from input
             Input orientation matrix, mapping voxels to world space
 
+        Other Parameters
+        ----------------
         order : int, default=self.order
             Interpolation order
 
@@ -99,6 +124,12 @@ class Reslicer:
         compute_map : bool, default=self.compute_map
             Compute reliability map
 
+        writer : io.VolumeWriter, default=self.writer
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, default=self.map_writer
+            Writer object for the reliability map
+
         Returns
         -------
         y : np.ndarray
@@ -108,6 +139,12 @@ class Reslicer:
             Reliability map
 
         """
+
+        # Select appropriate writer
+        writer, map_writer = _select_writer(x, self.writer,
+                                            self.map_writer,
+                                            self.output_prefix,
+                                            self.map_prefix)
 
         # Load input volume
         x, info = self.reader(x, dtype=np.float32)
@@ -123,8 +160,8 @@ class Reslicer:
         compute_map = argdef(compute_map, self.compute_map, False)
 
         # Compute affine map
-        Mi = np.array(input_affine)
-        Mo = np.array(output_affine)
+        Mi = np.asarray(input_affine)
+        Mo = np.asarray(output_affine)
         M = rmdiv(Mi, Mo)
         g = affine_grid(M, output_shape, dtype=np.float32)
         input_shape = x.shape[:3]
@@ -145,13 +182,13 @@ class Reslicer:
                 | (g[..., 2] < 0) | (g[..., 2] > input_shape[2]-1)
             x[msk] = 0
 
-        x = self.writer(x, info=info, affine=output_affine)
+        x = writer(x, info=info, affine=output_affine)
 
         if compute_map:
             map = reliability_grid(g)
             if not extrapolate:
                 map[msk] = 0
-            map = self.map_writer(map, info=info, affine=output_affine)
+            map = map_writer(map, info=info, affine=output_affine)
             return x, map
         else:
             return x
@@ -179,6 +216,8 @@ class ReslicerLike(Reslicer):
         input_affine : matrix_like, default=guessed from input
             Input orientation matrix, mapping voxels to world space
 
+        Other Parameters
+        ----------------
         order : int, default=self.order
             Interpolation order
 
@@ -192,6 +231,12 @@ class ReslicerLike(Reslicer):
 
         compute_map : bool, default=self.compute_map
             Compute reliability map
+
+        writer : io.VolumeWriter, default=self.writer
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, default=self.map_writer
+            Writer object for the reliability map
 
         Returns
         -------
@@ -235,6 +280,8 @@ class Resizer(Reslicer):
 
     """
 
+    output_prefix = 'resized_'
+
     @staticmethod
     def _transform_factor(f):
         return f
@@ -250,6 +297,8 @@ class Resizer(Reslicer):
         output_shape : iterable, default=from factor
             Output shape
 
+        Other Parameters
+        ----------------
         order : int, default=1
             Interpolation order
 
@@ -264,6 +313,13 @@ class Resizer(Reslicer):
 
         map_writer : io.VolumeWriter, optional
             Writer object for the reliability map
+
+        writer : io.VolumeWriter, default=self.writer
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, default=self.map_writer
+            Writer object for the reliability map
+
         """
         super().__init__(**kwargs)
         self.factor = factor
@@ -283,6 +339,8 @@ class Resizer(Reslicer):
         output_shape : iterable, default=self.output_shape
             Output shape
 
+        Other Parameters
+        ----------------
         order : int, default=self.order
             Interpolation order
 
@@ -292,6 +350,12 @@ class Resizer(Reslicer):
 
         compute_map : bool, default=self.compute_map
             Compute reliability map
+
+        writer : io.VolumeWriter, default=self.writer
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, default=self.map_writer
+            Writer object for the reliability map
 
         Returns
         -------
@@ -350,7 +414,8 @@ class Upsampler(Resizer):
     an integer factor, the bottom right corners should also match.
 
     """
-    pass
+
+    output_prefix = 'upsampled_'
 
 
 class Downsampler(Resizer):
@@ -363,6 +428,9 @@ class Downsampler(Resizer):
     also match.
 
     """
+
+    output_prefix = 'downsampled_'
+
     @staticmethod
     def _transform_factor(f):
         return 1/f
@@ -384,6 +452,8 @@ class ShapeResizer(Resizer):
         output_shape : iterable, optional
             Output shape
 
+        Other Parameters
+        ----------------
         order : int, default=1
             Interpolation order
 
@@ -398,6 +468,7 @@ class ShapeResizer(Resizer):
 
         map_writer : io.VolumeWriter, optional
             Writer object for the reliability map
+
         """
         super().__init__(**kwargs)
         self.output_shape = output_shape
@@ -413,6 +484,8 @@ class ShapeResizer(Resizer):
         output_shape : iterable, default=self.output_shape
             Output shape
 
+        Other Parameters
+        ----------------
         order : int, default=self.order
             Interpolation order
 
@@ -422,6 +495,12 @@ class ShapeResizer(Resizer):
 
         compute_map : bool, default=self.compute_map
             Compute reliability map
+
+        writer : io.VolumeWriter, default=self.writer
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, default=self.map_writer
+            Writer object for the reliability map
 
         Returns
         -------
@@ -452,6 +531,8 @@ class VoxelResizer(Resizer):
 
     """
 
+    output_prefix = 'rescaled_'
+
     def __init__(self, output_vs=None, **kwargs):
         """
 
@@ -460,6 +541,8 @@ class VoxelResizer(Resizer):
         output_vs : iterable, optional
             Output voxel size
 
+        Other Parameters
+        ----------------
         order : int, default=1
             Interpolation order
 
@@ -474,6 +557,7 @@ class VoxelResizer(Resizer):
 
         map_writer : io.VolumeWriter, optional
             Writer object for the reliability map
+
         """
         super().__init__(**kwargs)
         self.output_vs = output_vs
@@ -489,6 +573,8 @@ class VoxelResizer(Resizer):
         output_vs : iterable, default=self.output_shape
             Output voxel size
 
+        Other Parameters
+        ----------------
         order : int, default=self.order
             Interpolation order
 
@@ -498,6 +584,12 @@ class VoxelResizer(Resizer):
 
         compute_map : bool, default=self.compute_map
             Compute reliability map
+
+        writer : io.VolumeWriter, default=self.writer
+            Writer object for the resliced image
+
+        map_writer : io.VolumeWriter, default=self.map_writer
+            Writer object for the reliability map
 
         Returns
         -------

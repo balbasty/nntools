@@ -1,9 +1,11 @@
+"""Utilities related to affine spaces."""
+
 import re
 import numpy as np
 import itertools
 from warnings import warn
-from .linalg import lmdiv, rmdiv, mm, meanm, dexpm
-from .utils import sub2ind, majority
+from ..linalg import lmdiv, rmdiv, mm, meanm, dexpm
+from ..utils import sub2ind, majority
 from scipy.linalg import logm, expm
 from copy import deepcopy
 from ast import literal_eval
@@ -44,6 +46,7 @@ def affine_layout_matrix(layout, dtype=np.float64):
     -------
     mat : (dim+1, dim+1) ndarray
         Corresponding affine matrix.
+
     """
 
     # Author
@@ -314,7 +317,7 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
     max_iter : int, default=10000
         Maximum number of Gauss-Newton iterations in the least-squares fit.
 
-    tol : float, default = 1e-8
+    tol : float, default = 1e-16
         Tolerance criterion for convergence.
         It is based on the squared norm of the GN step divided by the
         squared norm of the input matrix.
@@ -354,7 +357,8 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
         n_iter = -1
         # Gauss-Newton optimisation
         prm = np.zeros(nb_basis, dtype=np.float64)
-        M = affine_matrix(prm, basis)
+        M = np.eye(nb_basis, dtype=np.float64)
+        M = mm(M, layout)
         sos = ((M - mat) ** 2).sum()
         norm = (mat ** 2).sum()
         crit = np.inf
@@ -362,7 +366,7 @@ def affine_parameters(mat, basis, layout='RAS', max_iter=10000, tol=1e-16,
 
             # Compute derivative of each submatrix with respect to its basis
             # * Mi
-            # * dM/dBi
+            # * dMi/dBi
             Ms = []
             dMs = []
             n_basis = 0

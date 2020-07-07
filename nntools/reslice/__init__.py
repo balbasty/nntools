@@ -1,20 +1,19 @@
 """Tools for reslicing volumes.
 
 Reslicing is the sequential process of:
-* interpolation          -> transform a discrete set of points into a
-                            continuous function;
-* spatial transformation -> compose the continous image function with
-                            a spatial transform _i.e._, a change of
-                            coordinates;
-* resampling             -> evaluate the transformed function at a new
-                            set of discrete points.
+    * **interpolation:**  transform a discrete set of points into a
+      continuous function;
+    * **spatial transformation:** compose the continuous image
+      function with a spatial transform *i.e.*, a change of coordinates;
+    * **resampling:** evaluate the transformed function at a new
+      set of discrete points.
 
 """
 
-from .O import Reslicer, ReslicerLike, Resizer, ShapeResizer, VoxelResizer, \
-               Upsampler, Downsampler
-from .F import reslice, reslice_like, resize, resize_shape, resize_voxel, \
-               upsample, downsample
+from .object import Reslicer, ReslicerLike, Resizer, ShapeResizer, \
+                    VoxelResizer, Upsampler, Downsampler
+from .functional import reslice, reslice_like, resize, resize_shape, \
+                        resize_voxel, upsample, downsample
 
 # ----------------------------------------------------------------------
 #                          COMMAND LINE VERSION
