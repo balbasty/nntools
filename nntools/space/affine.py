@@ -58,13 +58,13 @@ def affine_layout_matrix(layout, dtype=np.float64):
 
     # STEP 1: Find flips (L, P, I) and substitute them
     flip = [False, ] * dim
-    if layout.find('L') > 0:
+    if layout.find('L') >= 0:
         flip[0] = True
         layout = layout.replace('L', 'R')
-    if dim > 0 and layout.find('P') > 0:
+    if dim > 0 and layout.find('P') >= 0:
         flip[1] = True
         layout = layout.replace('P', 'A')
-    if dim > 1 and layout.find('I') > 0:
+    if dim > 1 and layout.find('I') >= 0:
         flip[2] = True
         layout = layout.replace('I', 'S')
 
@@ -76,10 +76,12 @@ def affine_layout_matrix(layout, dtype=np.float64):
             perm.append(layout.find('S'))
 
     # STEP 3: Create matrix
-    mat = np.ones(dim+1, dtype=dtype)
-    mat[flip + [False]] *= -1
-    mat = np.diag(mat)
-    mat = mat[:, perm + [3]]
+    mat = np.eye(dim+1, dtype=dtype)
+    mat = mat[perm + [3], :]
+    mflip = np.ones(dim+1, dtype=dtype)
+    mflip[flip + [False]] *= -1
+    mflip = np.diag(mflip)
+    mat = np.matmul(mflip, mat)
 
     return mat
 
@@ -115,13 +117,13 @@ def affine_layout(mat):
     min_sos = np.inf
     min_layout = None
 
-    def check_space(space):
+    def check_space(space, min_sos):
         layout = affine_layout_matrix(space)[:dim, :dim]
         sos = ((rmdiv(mat, layout) - eye) ** 2).sum()
         if sos < min_sos:
-            return space
+            return space, sos
         else:
-            return min_layout
+            return min_layout, min_sos
 
     if dim == 3:
         for D1 in ('R', 'L'):
@@ -130,17 +132,17 @@ def affine_layout(mat):
                     spaces = itertools.permutations([D1, D2, D3])
                     spaces = list(''.join(space) for space in spaces)
                     for space in spaces:
-                        min_layout = check_space(space)
+                        min_layout, min_sos = check_space(space, min_sos)
     elif dim == 2:
         for D1 in ('R', 'L'):
             for D2 in ('A', 'P'):
                 spaces = itertools.permutations([D1, D2])
                 spaces = list(''.join(space) for space in spaces)
                 for space in spaces:
-                    min_layout = check_space(space)
+                    min_layout, min_sos = check_space(space, min_sos)
     elif dim == 1:
         for D1 in ('R', 'L'):
-            min_layout = check_space(D1)
+            min_layout, min_sos = check_space(D1, min_sos)
 
     return min_layout
 
@@ -709,6 +711,7 @@ def change_layout(mat, shape, layout='RAS'):
     min_sos = np.inf
     min_R = np.eye(dim)
     min_perm = list(range(dim))
+    min_flip = [False] * dim
     I = layout[:dim, :dim]
 
     for perm in perms:
@@ -718,29 +721,31 @@ def change_layout(mat, shape, layout='RAS'):
         P = P.reshape((dim, dim))
         for flip in flips:
             # Build flip matrix
-            F = np.diag([2*f-1 for f in flip])
+            F = np.diag([2*(not f)-1 for f in flip])
 
             # Combine and compare
             R = np.matmul(F, P)
-            sos = ((rmdiv(R0, R) - I) ** 2).sum()
+            sos = ((np.matmul(R0, R) - I) ** 2).sum()
             if sos < min_sos:
                 min_sos = sos
                 min_R = R
                 min_perm = perm
+                min_flip = flip
 
     # Flips also include a translation; they are defined by the
     # affine mapping:
     # . 0 -> d-1
     # . d-1 -> 0
     transformed_corner = np.matmul(min_R, shape)
-    iR = np.linalg.inv(min_R)
-    T = (iR.sum(0)-1)/2 * (transformed_corner+1)
-    min_R = np.concatenate((iR, T[:, None]), axis=1)
+    R = min_R
+    T = (R.sum(0)-1)/2 * (transformed_corner+1)
+    min_R = np.concatenate((R, T[:, None]), axis=1)
     pad = np.array([[0]*dim + [1]], dtype=min_R.dtype)
     min_R = np.concatenate((min_R, pad), axis=0)
     mat = np.matmul(mat, min_R)
 
-    if array:
+    if array is not None:
+        array = np.flip(array, axis=np.where(min_flip)[0])
         array = array.transpose(min_perm)
         return mat, array
     else:
