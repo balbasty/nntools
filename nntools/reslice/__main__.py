@@ -25,6 +25,9 @@ common.add_argument('--extrapolate', type=bool, default=None,
 common.add_argument('--compute-map', default=False, action='store_true',
                     dest='compute_map',
                     help='Compute reliability maps [default: False]')
+common.add_argument('--ensure-multiple', nargs='+', type=int, default=None,
+                    dest='ensure_multiple', metavar='MULTIPLE',
+                    help='Ensure output shape is a multiple of MULTIPLE')
 common.add_argument('--output-dtype', '-dt', default=None,
                     dest='output_dtype', metavar='TYPE',
                     help='Output data type [default: same as input]')
@@ -107,7 +110,7 @@ if output_kwargs['dtype'] is not None:
 if output_kwargs['ext'] and not output_kwargs['ext'].startswith('.'):
     output_kwargs['ext'] = '.' + output_kwargs['ext']
 if output_kwargs['prefix'] is None:
-    output_kwargs['prefix'] = 'resliced_'
+    output_kwargs['prefix'] = args.klass.output_prefix
 writer = VolumeWriter(**output_kwargs)
 
 output_kwargs['prefix'] = args.map_prefix
@@ -125,6 +128,7 @@ common_kwargs = {
     'bound': args.bound if args.bound != 'zero' else 0,
     'extrapolate': args.extrapolate,
     'compute_map': args.compute_map,
+    'ensure_multiple': args.ensure_multiple,
     'writer': writer,
     'map_writer': map_writer,
 }

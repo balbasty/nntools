@@ -46,7 +46,8 @@ class Reslicer:
 
     def __init__(self, output_affine=None, output_shape=None, *,
                  order=1, bound='mirror', extrapolate=False,
-                 compute_map=False, writer=None, map_writer=None):
+                 compute_map=False, ensure_multiple=None,
+                 writer=None, map_writer=None):
         """
 
         Parameters
@@ -72,6 +73,12 @@ class Reslicer:
         compute_map : bool, default=False
             Compute reliability map
 
+        ensure_multiple : vector_like[int], optional
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, optional
             Writer object for the resliced image
 
@@ -84,6 +91,7 @@ class Reslicer:
         self.bound = bound
         self.extrapolate = extrapolate
         self.compute_map = compute_map
+        self.ensure_multiple = ensure_multiple
         self.reader = VolumeReader()
         self.writer = writer
         self.map_writer = map_writer
@@ -91,7 +99,7 @@ class Reslicer:
     def __call__(self, x,
                  output_affine=None, output_shape=None, input_affine=None, *,
                  order=None, bound=None, extrapolate=None, compute_map=None,
-                 writer=None, map_writer=None):
+                 ensure_multiple=None, writer=None, map_writer=None):
         """Reslice a volume to a target shape and orientation (affine matrix).
 
         Parameters
@@ -124,6 +132,12 @@ class Reslicer:
         compute_map : bool, default=self.compute_map
             Compute reliability map
 
+        ensure_multiple : vector_like[int], default=self.ensure_multiple
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, default=self.writer
             Writer object for the resliced image
 
@@ -153,16 +167,23 @@ class Reslicer:
         input_affine = argdef(input_affine, info.get('affine'), np.eye(4))
         output_affine = argdef(output_affine, self.output_affine, input_affine)
         output_shape = argdef(output_shape, self.output_shape, x.shape)
-        output_shape = output_shape[:3]
+        output_shape = argpad(output_shape, 3)
         order = argdef(order, self.order, 1)
         bound = argdef(bound, self.bound, 'mirror')
         extrapolate = argdef(extrapolate, self.extrapolate, False)
         compute_map = argdef(compute_map, self.compute_map, False)
+        ensure_multiple = argdef(ensure_multiple, self.ensure_multiple)
+        ensure_multiple = argpad(ensure_multiple, 3)
+
+        # Pad shape if needed
+        output_shape = [int(np.ceil(o/m)*m) if m is not None and o != 1 else o
+                        for o, m in zip(output_shape, ensure_multiple)]
+        # TODO: add little translation so that the padding is central?
 
         # Compute affine map
         Mi = np.asarray(input_affine)
         Mo = np.asarray(output_affine)
-        M = rmdiv(Mi, Mo)
+        M = lmdiv(Mi, Mo)
         g = affine_grid(M, output_shape, dtype=np.float32)
         input_shape = x.shape[:3]
 
@@ -177,9 +198,10 @@ class Reslicer:
 
         # Mask of out-of-bound voxels
         if not extrapolate:
-            msk = (g[..., 0] < 0) | (g[..., 0] > input_shape[0]-1) \
-                | (g[..., 1] < 0) | (g[..., 1] > input_shape[1]-1) \
-                | (g[..., 2] < 0) | (g[..., 2] > input_shape[2]-1)
+            gap = 0  # TODO: What's best?
+            msk = (g[..., 0] < -gap) | (g[..., 0] > input_shape[0]-1.0+gap) \
+                | (g[..., 1] < -gap) | (g[..., 1] > input_shape[1]-1.0+gap) \
+                | (g[..., 2] < -gap) | (g[..., 2] > input_shape[2]-1.0+gap)
             x[msk] = 0
 
         x = writer(x, info=info, affine=output_affine)
@@ -231,6 +253,12 @@ class ReslicerLike(Reslicer):
 
         compute_map : bool, default=self.compute_map
             Compute reliability map
+
+        ensure_multiple : vector_like[int], optional
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
 
         writer : io.VolumeWriter, default=self.writer
             Writer object for the resliced image
@@ -308,16 +336,16 @@ class Resizer(Reslicer):
         compute_map : bool, default=False
             Compute reliability map
 
+        ensure_multiple : vector_like[int], optional
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, optional
             Writer object for the resliced image
 
         map_writer : io.VolumeWriter, optional
-            Writer object for the reliability map
-
-        writer : io.VolumeWriter, default=self.writer
-            Writer object for the resliced image
-
-        map_writer : io.VolumeWriter, default=self.map_writer
             Writer object for the reliability map
 
         """
@@ -351,6 +379,12 @@ class Resizer(Reslicer):
         compute_map : bool, default=self.compute_map
             Compute reliability map
 
+        ensure_multiple : vector_like[int], default=self.ensure_multiple
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, default=self.writer
             Writer object for the resliced image
 
@@ -378,26 +412,29 @@ class Resizer(Reslicer):
         # > We therefore first apply a negative translation of half a
         #   voxel; then scale; then apply a positive translation of
         #   half a (scaled) voxel.
-        ifactor = [1/f for f in factor]
-        scale = np.diag(ifactor + [1])
+        scale = np.diag(factor + [1])
         shift = np.eye(4)
         shift[:3, 3] = 0.5
-        scale = np.dot(scale, shift)
+        scale = np.matmul(scale, shift)
         shift[:3, 3] = -0.5
-        scale = np.dot(shift, scale)
-        output_affine = np.dot(input_affine, scale)
+        scale = np.matmul(shift, scale)
+        output_affine = np.matmul(input_affine, scale)
 
         # Compute output shape
         if output_shape is None:
             output_shape = self.output_shape
         if output_shape is None:
-            output_shape = [np.floor(i*s) for i, s in zip(input_shape, factor)]
+            output_shape = [np.floor(i/s) for i, s in zip(input_shape, factor)]
 
-        # Specify default for extrapolate
-        if kwargs.get('extrapolate') is None:
-            kwargs['extrapolate'] = self.extrapolate
-        if kwargs.get('extrapolate')  is None:
-            kwargs['extrapolate'] = True
+        from ..space.affine import voxel_size
+        print(voxel_size(input_affine), input_shape)
+        print(voxel_size(output_affine), output_shape)
+
+        # # Specify default for extrapolate
+        # if kwargs.get('extrapolate') is None:
+        #     kwargs['extrapolate'] = self.extrapolate
+        # if kwargs.get('extrapolate') is None:
+        #     kwargs['extrapolate'] = True
 
         return super().__call__(x, input_affine=input_affine,
                                 output_affine=output_affine,
@@ -417,6 +454,10 @@ class Upsampler(Resizer):
 
     output_prefix = 'upsampled_'
 
+    @staticmethod
+    def _transform_factor(f):
+        return 1/f
+
 
 class Downsampler(Resizer):
     """Downsample images by a factor.
@@ -430,10 +471,6 @@ class Downsampler(Resizer):
     """
 
     output_prefix = 'downsampled_'
-
-    @staticmethod
-    def _transform_factor(f):
-        return 1/f
 
 
 class ShapeResizer(Resizer):
@@ -462,6 +499,12 @@ class ShapeResizer(Resizer):
 
         compute_map : bool, default=False
             Compute reliability map
+
+        ensure_multiple : vector_like[int], optional
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
 
         writer : io.VolumeWriter, optional
             Writer object for the resliced image
@@ -496,6 +539,12 @@ class ShapeResizer(Resizer):
         compute_map : bool, default=self.compute_map
             Compute reliability map
 
+        ensure_multiple : vector_like[int], default=self.ensure_multiple
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, default=self.writer
             Writer object for the resliced image
 
@@ -517,7 +566,7 @@ class ShapeResizer(Resizer):
         output_shape = argpad(output_shape, 3)
 
         # Compute factor
-        factor = [o/i for o, i in zip(output_shape, input_shape)]
+        factor = [i/o for o, i in zip(output_shape, input_shape)]
 
         # Call resizer
         return super().__call__(x, factor, output_shape, **kwargs)
@@ -552,6 +601,12 @@ class VoxelResizer(Resizer):
         compute_map : bool, default=False
             Compute reliability map
 
+        ensure_multiple : vector_like[int], optional
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, optional
             Writer object for the resliced image
 
@@ -585,6 +640,12 @@ class VoxelResizer(Resizer):
         compute_map : bool, default=self.compute_map
             Compute reliability map
 
+        ensure_multiple : vector_like[int], default=self.ensure_multiple
+            Ensures that the shape is a multiple of a value (e.g., 32).
+            This can be useful for convolutional neural networks.
+            If used, pad non-singleton dimensions until they fulfill
+            the condition.
+
         writer : io.VolumeWriter, default=self.writer
             Writer object for the resliced image
 
@@ -606,7 +667,7 @@ class VoxelResizer(Resizer):
         output_vs = argpad(output_vs, 3)
 
         # Compute factor
-        factor = [i/o for o, i in zip(output_vs, input_vs)]
+        factor = [o/i for o, i in zip(output_vs, input_vs)]
 
         # Call resizer
         return super().__call__(x, factor, **kwargs)

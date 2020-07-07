@@ -40,6 +40,12 @@ def reslice(x, output_affine=None, output_shape=None, input_affine=None,
     compute_map : bool, default=False
         Compute reliability map
 
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
+
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
 
@@ -90,6 +96,12 @@ def reslice_like(x, reference_volume=None, input_affine=None,
 
     compute_map : bool, default=False
         Compute reliability map
+
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
 
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
@@ -145,6 +157,12 @@ def resize(x, factor, output_shape=None, **kwargs):
     compute_map : bool, default=False
         Compute reliability map
 
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
+
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
 
@@ -197,6 +215,12 @@ def upsample(x, factor=2, output_shape=None, **kwargs):
 
     compute_map : bool, default=False
         Compute reliability map
+
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
 
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
@@ -252,6 +276,12 @@ def downsample(x, factor=2, output_shape=None, **kwargs):
     compute_map : bool, default=False
         Compute reliability map
 
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
+
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
 
@@ -300,6 +330,12 @@ def resize_shape(x, output_shape=None, **kwargs):
     compute_map : bool, default=False
         Compute reliability map
 
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
+
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
 
@@ -346,6 +382,12 @@ def resize_voxel(x, output_vs=None, **kwargs):
 
     compute_map : bool, default=False
         Compute reliability map
+
+    ensure_multiple : vector_like[int], optional
+        Ensures that the shape is a multiple of a value (e.g., 32).
+        This can be useful for convolutional neural networks.
+        If used, pad non-singleton dimensions until they fulfill
+        the condition.
 
     writer : io.VolumeWriter, optional
         Writer object for the resliced image
