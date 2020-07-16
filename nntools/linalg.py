@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 from warnings import warn
 import numpy as np
 from scipy.linalg import logm, expm
@@ -114,7 +116,7 @@ def meanm(mats, max_iter=1024, tol=1e-20):
         "Exponential Barycenters of the Canonical Cartan Connection and
         Invariant Means on Lie Groups."
         Matrix Information Geometry, Springer, pp.123-168, 2012.
-        ⟨10.1007/978-3-642-30232-9_7⟩. ⟨hal-00699361⟩
+        (10.1007/978-3-642-30232-9_7). (hal-00699361)
         https://hal.inria.fr/hal-00699361
 
     """
