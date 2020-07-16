@@ -17,6 +17,25 @@ HELP_MSG="usage: nntools.sh [-h] { "
 HELP_MSG+="${MODULE_LIST[*]}"
 HELP_MSG+=" }"
 
+MIN_PYTHON_VERSION="350"
+
+# Check python version
+PYTHON_VERSION=$(python -V 2>&1 | grep -o '[0-9\.]\+')
+PYTHON_VERSION=$(echo "${PYTHON_VERSION//./}")
+if [ "${#PYTHON_VERSION}" -gt 3 ]; then
+  EXTRA="${#PYTHON_VERSION}"
+  EXTRA=$((EXTRA - 3))
+  for i in $(seq 1 1 "$EXTRA"); do
+    MIN_PYTHON_VERSION+="0"
+  done
+fi
+ERROR_MSG_PYTHON="Invalid python version: should be >= "
+ERROR_MSG_PYTHON+="${MIN_PYTHON_VERSION}"
+ERROR_MSG_PYTHON+=" but got "
+ERROR_MSG_PYTHON+="${PYTHON_VERSION}"
+[ "$PYTHON_VERSION" -ge "$MIN_PYTHON_VERSION" ] \
+  || { echo "$ERROR_MSG_PYTHON" >&2; exit 1; }
+
 # If no module is provided, return with an error
 [ "$#" -eq 0 ] && { echo "$ERROR_MSG_NO_MODULE" >&2; exit 1; }
 
