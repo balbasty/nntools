@@ -693,7 +693,7 @@ def change_layout(mat, shape, layout='RAS'):
     array = None
     if len(shape.shape) > 1:
         array = shape
-        shape = array.shape[:dim]
+        shape = np.asarray(array.shape[:dim])
 
     # Find combination of 90 degree rotations and flips that brings
     # all the matrices closest to the target layout.
@@ -736,13 +736,14 @@ def change_layout(mat, shape, layout='RAS'):
     # affine mapping:
     # . 0 -> d-1
     # . d-1 -> 0
-    transformed_corner = np.matmul(min_R, shape)
     R = min_R
-    T = (R.sum(0)-1)/2 * (transformed_corner+1)
-    min_R = np.concatenate((R, T[:, None]), axis=1)
+    transformed_corner = np.abs(lmdiv(R, shape-1))
+    T = (R.sum(0)-1)/2 * transformed_corner
+    T = np.matmul(R, T)
+    R = np.concatenate((R, T[:, None]), axis=1)
     pad = np.array([[0]*dim + [1]], dtype=min_R.dtype)
-    min_R = np.concatenate((min_R, pad), axis=0)
-    mat = np.matmul(mat, min_R)
+    R = np.concatenate((R, pad), axis=0)
+    mat = np.matmul(mat, R)
 
     if array is not None:
         array = np.flip(array, axis=np.where(min_flip)[0])
