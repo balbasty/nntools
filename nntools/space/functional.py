@@ -1,7 +1,7 @@
 """Utilities related to voxel/world spaces implemented in a
 Functional paradigm."""
 
-from .object import Reorienter
+from .object import Reorienter, Inspecter
 
 
 def reorient(x, affine=None, layout=None, **kwargs):
@@ -24,5 +24,16 @@ def reorient(x, affine=None, layout=None, **kwargs):
         Reoriented volume.
 
     """
-    reorienter = Reorienter()
-    return reorienter(x, affine=affine, layout=layout, **kwargs)
+    return Reorienter()(x, affine=affine, layout=layout, **kwargs)
+
+
+def inspect(x):
+    """Inspect the space of a volume.
+
+    Parameters
+    ----------
+        x : file_like or array_like
+            Input volume
+
+    """
+    return Inspecter()(x)

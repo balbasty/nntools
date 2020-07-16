@@ -2,10 +2,11 @@
 Object-Oriented paradigm."""
 
 import numpy as np
+import os
 from ..io import VolumeReader, VolumeWriter, VolumeConverter, isfile
 from ..utils import argdef
 from .affine import change_layout, voxel_size, affine_layout
-from nibabel import aff2axcodes
+
 
 def _select_writer(x, writer, prefix):
     """Choose writer based on input type."""
@@ -36,7 +37,7 @@ class Reorienter:
         self.reader = VolumeReader()
         self.writer = writer
 
-    def __call__(self, x, affine = None, layout=None, writer=None):
+    def __call__(self, x, affine=None, layout=None, writer=None):
         """
 
         Parameters
@@ -74,3 +75,52 @@ class Reorienter:
 
         # Write
         return writer(x, info=info, affine=affine)
+
+
+class Inspecter:
+    """Inspect the space of a volume or file."""
+
+    fields = ('shape', 'voxel size', 'layout', 'affine')
+    field_len = max(*(len(field) for field in fields)) + 1
+
+    def __init__(self):
+        self.reader = VolumeReader()
+
+    def __call__(self, x):
+        """
+
+        Parameters
+        ----------
+        x : file_like or array_like
+            Input volume
+
+        """
+
+        info = self.reader.inspect(x)
+
+        if isinstance(x, np.ndarray):
+            print('Array')
+        else:
+            fname = os.path.join(info.get('dir'),
+                                 info.get('basename') + info.get('ext'))
+            shape = info.get('shape')
+            affine = info.get('affine')
+            vs = voxel_size(affine)
+            layout = affine_layout(affine)
+
+            print('File: {}'.format(fname))
+            self.print_field('shape', shape)
+            self.print_field('voxel size', vs)
+            self.print_field('layout', layout)
+            self.print_field('affine', affine)
+
+    def print_field(self, name, value, format=''):
+        repr_value = '{' + format + '}'
+        repr_value = repr_value.format(value).split('\n')
+        for n_line in range(1, len(repr_value)):
+            pad = ' ' * (self.field_len+1)
+            repr_value[n_line] = '\t' + pad + repr_value[n_line]
+        repr_value = '\n'.join(repr_value)
+
+        print(('\t{:' + str(self.field_len) + 's} {}')
+              .format(name + ':', repr_value))
