@@ -44,6 +44,9 @@ common.add_argument('--map-prefix', default=None,
 common.add_argument('--output-format', '-f', default=None,
                     dest='output_ext', metavar='FORMAT',
                     help='Output extension [default: same as input]')
+common.add_argument('--output-layout', default=None,
+                    dest='output_layout', metavar='LAYOUT',
+                    help='Force output layout (e.g. RAS)')
 
 #                           ------------
 #                           Sub commands
@@ -129,6 +132,7 @@ common_kwargs = {
     'extrapolate': args.extrapolate,
     'compute_map': args.compute_map,
     'ensure_multiple': args.ensure_multiple,
+    'output_layout': args.output_layout,
     'writer': writer,
     'map_writer': map_writer,
 }

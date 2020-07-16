@@ -6,6 +6,7 @@ from ..io import VolumeReader, VolumeWriter, VolumeConverter, isfile
 from ..interpolate import affine_grid, sample_grid, reliability_grid
 from ..utils import argpad, argdef
 from ..linalg import lmdiv, rmdiv
+from ..space.affine import change_layout
 from ..hints import Matrix, Vector, AnyArray
 from typing import Tuple
 import numpy as np
@@ -45,6 +46,7 @@ class Reslicer:
     map_prefix = 'map_'
 
     def __init__(self, output_affine=None, output_shape=None, *,
+                 output_layout=None,
                  order=1, bound='nearest', extrapolate=False,
                  compute_map=False, ensure_multiple=None,
                  writer=None, map_writer=None):
@@ -87,6 +89,7 @@ class Reslicer:
         """
         self.output_affine = output_affine
         self.output_shape = output_shape
+        self.output_layout = output_layout
         self.order = order
         self.bound = bound
         self.extrapolate = extrapolate
@@ -98,6 +101,7 @@ class Reslicer:
 
     def __call__(self, x,
                  output_affine=None, output_shape=None, input_affine=None, *,
+                 output_layout=None,
                  order=None, bound=None, extrapolate=None, compute_map=None,
                  ensure_multiple=None, writer=None, map_writer=None):
         """Reslice a volume to a target shape and orientation (affine matrix).
@@ -168,6 +172,7 @@ class Reslicer:
         output_affine = argdef(output_affine, self.output_affine, input_affine)
         output_shape = argdef(output_shape, self.output_shape, x.shape)
         output_shape = argpad(output_shape, 3)
+        output_layout = argdef(output_layout, self.output_layout)
         order = argdef(order, self.order, 1)
         bound = argdef(bound, self.bound, 'mirror')
         extrapolate = argdef(extrapolate, self.extrapolate, False)
@@ -179,6 +184,11 @@ class Reslicer:
         output_shape = [int(np.ceil(o/m)*m) if m is not None and o != 1 else o
                         for o, m in zip(output_shape, ensure_multiple)]
         # TODO: add little translation so that the padding is central?
+
+        # Change output layout if needed
+        if output_layout is not None:
+            output_affine, output_shape = change_layout(
+                output_affine, output_shape, output_layout)
 
         # Compute affine map
         Mi = np.asarray(input_affine)
