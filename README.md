@@ -23,6 +23,7 @@ python -m nntools.<module> -h
 
 The list of runnable modules is:
 - ``reslice``
+- ``space``
 - ``intensity_normalize``
 
 ### Import as modules
