@@ -698,7 +698,7 @@ def change_layout(mat, shape, layout='RAS'):
     # Find combination of 90 degree rotations and flips that brings
     # all the matrices closest to the target layout.
     # In practice, combinations are implemented as permutations
-    # (= 90º rotation + flip) and flips.
+    # (= 90 deg rotation + flip) and flips.
     perms = list(itertools.permutations(range(dim)))
     flips = list(itertools.product([True, False], repeat=dim))
     if isinstance(layout, str):
