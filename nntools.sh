@@ -57,6 +57,12 @@ for CORRECT_MODULE in "${MODULE_LIST[@]}"; do
 done
 [ -z "$SUCCESS" ] && { echo "$ERROR_MSG_BAD_MODULE" >&2; exit 1; }
 
+# Say which nntools we are using
+COMMAND="import nntools; import os; "
+COMMAND+="print('Using: {}'.format(os.path.dirname(nntools.__file__)))"
+python -c "$(echo "$COMMAND")" \
+  || { echo "Failed to import nntools" >&2; exit 1; }
+
 # Remove module name from the argument list and run the module
 shift  1
 python -m nntools."$MODULE" "$@"
