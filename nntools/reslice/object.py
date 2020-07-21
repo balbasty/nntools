@@ -434,9 +434,7 @@ class Resizer(Reslicer):
         if output_shape is None:
             output_shape = self.output_shape
         if output_shape is None:
-            output_shape = [np.floor(i/s) for i, s in zip(input_shape, factor)]
-
-        from ..space.affine import voxel_size
+            output_shape = [np.floor(i/f) for i, f in zip(input_shape, factor)]
 
         return super().__call__(x, input_affine=input_affine,
                                 output_affine=output_affine,
